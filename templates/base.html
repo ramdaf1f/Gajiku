@@ -19,7 +19,9 @@
   </script>
   <div class="bg-orb bg-orb--navy" aria-hidden="true"></div>
 <header class="topbar">
-  <div class="brand">Aplikasi GajiKu</div>
+  <div class="brand">
+    <img src="{{ url_for('static', filename='img/logorow-gajiku.png') }}" alt="Logo GajiKu" class="brand-logo">
+  </div>
   <div class="topbar-actions">
     <div class="toggle" id="theme-toggle" role="button" aria-label="Toggle theme" aria-pressed="false" tabindex="0">
       <div class="handle"></div>
@@ -43,6 +45,7 @@
 </main>
 
 <footer class="footer">
+  <img src="{{ url_for('static', filename='img/logogajiku.png') }}" alt="Logo GajiKu" class="footer-logo">
   <p>APLIKASI GajiKu 2026 by : <b>Fhr'nDhan</b></p>
 </footer>
 

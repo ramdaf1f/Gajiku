@@ -114,7 +114,9 @@ body.theme-new .topbar .theme-toggle__bulb{
   border-bottom:4px solid #e3b341;
   justify-content:space-between;
 }
-.brand{font-weight:800; letter-spacing:.2px}
+.brand{font-weight:800; letter-spacing:.2px; display:flex; align-items:center; gap:10px}
+.brand-logo{height:28px; width:auto; display:block}
+body:not(.theme-new) .brand-logo{filter:brightness(0) invert(1)}
 .topbar-actions{display:flex; align-items:center; gap:10px}
 #mainnav{display:flex; align-items:center; gap:10px}
 #mainnav a, #mainnav button{color:var(--text); padding:8px 10px; border-radius:8px; border:1px solid transparent}
@@ -247,6 +249,13 @@ input, select{
   background:rgba(12,16,36,.7); color:var(--text); outline:none;
 }
 input:focus{border-color:var(--accent)}
+.login-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.login-logo{height:54px; width:auto; display:block}
 
 .password-field{position:relative;}
 .password-field input{padding-right:110px;}
@@ -683,6 +692,10 @@ body.theme-new .employee-intro p{
   margin-top:30px; padding:15px; text-align:center; font-size:.85rem;
   color:#aaa; border-top:1px solid rgba(255,255,255,0.1);
   position:relative; z-index:1;
+}
+.footer-logo{
+  height:113px; width:auto; display:block;
+  margin:0 auto 8px;
 }
 
 /* Simple table (admin pegawai) */

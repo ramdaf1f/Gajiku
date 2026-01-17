@@ -3,12 +3,15 @@
 {% block body_class %}login-page{% endblock %}
 {% block content %}
 <section class="card glass" style="max-width:760px;margin:auto">
-  <h1>Login</h1>
+  <h1 class="login-header">
+    <span>Login</span>
+    <img src="{{ url_for('static', filename='img/logo_gjku.png') }}" alt="Logo GajiKu" class="login-logo">
+  </h1>
   <p class="muted">
     Masuk dengan <b>email dan password</b>
   </p>
 
-  <form method="post" action="{{ url_for('web.login') }}" class="grid" style="grid-template-columns:1fr;gap:12px">
+  <form method="post" action="{{ url_for('web.login') }}" class="grid" style="grid-template-columns:1fr;gap:12px;margin-bottom:10px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="login-email">Email</label>
     <input type="email" id="login-email" name="email" placeholder="nama@perusahaan.com" required>
@@ -36,7 +39,5 @@
   </form>
 </section>
 
-<footer class="muted" style="margin-top:16px;text-align:center">
-  "GajiKu" 2026
-</footer>
+<footer class="muted" style="margin-top:16px;text-align:center"></footer>
 {% endblock %}
