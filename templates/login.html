@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Login • GajiKu{% endblock %}
+{% block body_class %}login-page{% endblock %}
+{% block content %}
+<section class="card glass" style="max-width:760px;margin:auto">
+  <h1>Login</h1>
+  <p class="muted">
+    Masuk dengan <b>email dan password</b>
+  </p>
+
+  <form method="post" action="{{ url_for('web.login') }}" class="grid" style="grid-template-columns:1fr;gap:12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="login-email">Email</label>
+    <input type="email" id="login-email" name="email" placeholder="nama@perusahaan.com" required>
+    <label for="login-password">Password</label>
+    <div class="password-field">
+      <input type="password" id="login-password" name="password" placeholder="••••••••" required>
+      <button type="button" class="password-toggle" aria-label="Tampilkan password" aria-pressed="false" data-toggle-password="login-password">
+        <svg class="password-toggle__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-eq" type="submit" id="btn-login">LOGIN</button>
+      <a class="btn btn-eq" href="{{ url_for('web.register') }}" id="btn-register">REGISTER</a>
+    </div>
+
+    <!-- link lupa password -->
+    <p style="text-align:center; margin-top:10px;">
+      <a class="btn-ghost-link" href="{{ url_for('web.forgot_password') }}">Lupa password?</a>
+    </p>
+
+  </form>
+</section>
+
+<footer class="muted" style="margin-top:16px;text-align:center">
+  "GajiKu" 2026
+</footer>
+{% endblock %}

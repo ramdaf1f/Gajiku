@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}Admin • Kelola Pegawai{% endblock %}
+{% block body_class %}admin-group admin-pegawai{% endblock %}
+{% block content %}
+
+<section class="hero" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+  <div>
+    <h1>Daftar Pegawai</h1>
+    <p class="muted admin-pegawai-note">Tambah, ubah, non-aktifkan,</br>dan atur siklus gaji
+    </br><b>(A: 1-akhir bulan, B: 16-15)</b>.
+    </p>
+  </div>
+</section>
+
+<section class="actions-row admin-pegawai-actions" style="margin-bottom:12px">
+  <button class="btn btn-outline btn-sm admin-pegawai-action" onclick="openAddModal()">+ Pegawai</button>
+  <a class="btn btn-outline btn-sm admin-pegawai-action" href="{{ url_for('web.admin_dashboard') }}">Dashboard</a>
+</section>
+
+<style>
+  body.theme-new .admin-pegawai-note{ color:#1f2a44; }
+  .admin-pegawai-action{
+    font-weight:600;
+    font-size:13px;
+    line-height:1.1;
+    padding:8px 12px;
+    color:#fff !important;
+  }
+</style>
+
+<!-- Filter -->
+<section class="card glass" style="margin-bottom:12px">
+  <form method="get" action="{{ url_for('web.admin_pegawai') }}"
+        style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+    <div>
+      <label>Cari</label>
+      <input type="text" name="q" placeholder="nama / email / jabatan" value="{{ q or '' }}">
+    </div>
+    <div>
+      <label>Perusahaan</label>
+      <select name="company">
+        <option value="">— Semua —</option>
+        {% for c in companies %}
+          <option value="{{ c }}" {{ 'selected' if c==f_company else '' }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn" type="submit">Apply</button>
+    <span class="muted" style="margin-left:auto">Total: {{ total }}</span>
+  </form>
+</section>
+
+<!-- Daftar Pegawai -->
+<section class="card glass">
+  <h3 style="margin:0 0 10px">Daftar Pegawai</h3>
+
+  {% if not rows %}
+    <p class="muted">Belum ada data.</p>
+  {% else %}
+  <div class="table-wrap" style="max-height:560px;overflow:auto">
+    <table>
+      <thead style="position:sticky;top:0;z-index:1">
+        <tr>
+          <th style="width:16%">Nama</th>
+          <th style="width:18%">Email</th>
+          <th style="width:12%">No Telp</th>
+          <th style="width:12%">Jabatan</th>
+          <th style="width:14%">Perusahaan</th>
+          <th style="width:10%">Gaji</th>
+          <th style="width:7%">Status</th>
+          <th style="width:5%">Siklus</th>
+          <th style="width:6%">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set sg = r['siklus_gaji'] if 'siklus_gaji' in r.keys() else 'A' %}
+        <tr>
+          <td>{{ r['nama'] }}</td>
+          <td>{{ r['email'] }}</td>
+          <td>{{ r['no_telp'] }}</td>
+          <td>{{ r['jabatan'] }}</td>
+          <td>{{ r['perusahaan'] }}</td>
+          <td>{{ "{:,}".format(r['gaji'] or 0).replace(",", ".") }}</td>
+          <td>
+            {% if r['status_aktif'] %}
+              <span class="badge">AKTIF</span>
+            {% else %}
+              <span class="badge badge-urg">NON-AKTIF</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if sg == 'B' %}
+              <span class="badge badge-b">B</span>
+            {% else %}
+              <span class="badge badge-a">A</span>
+            {% endif %}
+          </td>
+          <td>
+            <button class="btn btn-outline btn-sm"
+                    onclick='openEditModal({
+                      id:{{ r["id"] }},
+                      nama:{{ r["nama"]|tojson }},
+                      email:{{ r["email"]|tojson }},
+                      jabatan:{{ r["jabatan"]|tojson }},
+                      perusahaan:{{ r["perusahaan"]|tojson }},
+                      no_rekening:{{ r["no_rekening"]|tojson }},
+                      no_telp:{{ r["no_telp"]|tojson }},
+                      gaji:{{ (r["gaji"] or 0)|tojson }},
+                      status:{{ (r["status_aktif"] or 0)|tojson }},
+                      siklus:{{ (sg or "A")|tojson }}
+                    })'>Edit</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<!-- ===== Modal Tambah Pegawai ===== -->
+<div id="addModal" class="modal" style="display:none">
+  <div class="modal-content modal-skin">
+    <h3 style="margin-top:0">Tambah Pegawai</h3>
+    <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.admin_pegawai_add') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div style="grid-column:span 3"><label>Nama</label><input name="nama" required></div>
+      <div style="grid-column:span 3"><label>Email</label><input name="email" type="email" required></div>
+      <div style="grid-column:span 3"><label>Jabatan</label><input name="jabatan"></div>
+      <div style="grid-column:span 3"><label>Perusahaan</label><input name="perusahaan" placeholder="opsional"></div>
+      <div style="grid-column:span 3"><label>No Rekening</label><input name="no_rekening" placeholder="opsional"></div>
+      <div style="grid-column:span 3"><label>No Telp</label><input name="no_telp" placeholder="opsional"></div>
+      <div style="grid-column:span 2"><label>Gaji</label><input name="gaji" inputmode="numeric" placeholder="6000000"></div>
+      <div style="grid-column:span 2">
+        <label>Status</label>
+        <select name="status">
+          <option value="1">Aktif</option>
+          <option value="0">Non-Aktif</option>
+        </select>
+      </div>
+      <div style="grid-column:span 2">
+        <label>Siklus Gaji</label>
+        <select name="siklus_gaji" id="add_siklus">
+          <option value="B" selected>B (16–15)</option>
+          <option value="A">A (1–akhir)</option>
+        </select>
+      </div>
+      <div class="pegawai-form-actions" style="grid-column:1/-1">
+        <button type="button" class="btn btn-outline" data-close>Cancel</button>
+        <button type="submit" class="btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== Modal Edit Pegawai ===== -->
+<div id="editModal" class="modal" style="display:none">
+  <div class="modal-content modal-skin">
+    <button class="modal-close" type="button" data-close aria-label="Tutup">x</button>
+    <h3 style="margin-top:0">Edit Pegawai</h3>
+    <form id="editForm" class="pegawai-form" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="pid" id="m_pid">
+      <div style="grid-column:span 3"><label>Nama</label><input id="m_nama" name="nama" required></div>
+      <div style="grid-column:span 3"><label>Email</label><input id="m_email" name="email" type="email" required></div>
+      <div style="grid-column:span 3"><label>Jabatan</label><input id="m_jabatan" name="jabatan"></div>
+      <div style="grid-column:span 3"><label>Perusahaan</label><input id="m_perusahaan" name="perusahaan"></div>
+      <div style="grid-column:span 3"><label>No Rekening</label><input id="m_no_rekening" name="no_rekening" placeholder="opsional"></div>
+      <div style="grid-column:span 3"><label>No Telp</label><input id="m_no_telp" name="no_telp" placeholder="opsional"></div>
+      <div style="grid-column:span 2"><label>Gaji</label><input id="m_gaji" name="gaji" inputmode="numeric"></div>
+      <div style="grid-column:span 2">
+        <label>Status</label>
+        <select id="m_status" name="status">
+          <option value="1">Aktif</option>
+          <option value="0">Non-Aktif</option>
+        </select>
+      </div>
+      <div style="grid-column:span 2">
+        <label>Siklus Gaji</label>
+        <select id="m_siklus" name="siklus_gaji">
+          <option value="A">A (1–akhir)</option>
+          <option value="B">B (16–15)</option>
+        </select>
+      </div>
+
+    </form>
+
+    <form id="deleteForm" method="post" onsubmit="return confirm('Hapus pegawai ini?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    </form>
+    <div class="edit-actions" style="margin-top:8px">
+      <button class="btn btn-outline btn-sm" type="submit" form="deleteForm">Hapus Pegawai</button>
+      <button type="submit" class="btn" form="editForm">Simpan Perubahan</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ===== Helpers modal umum =====
+  function openAddModal(){
+    const m = document.getElementById('addModal');
+    const f = document.getElementById('addForm');
+    if(f){ f.reset(); document.getElementById('add_siklus').value = 'B'; }
+    m.style.display = 'flex';
+  }
+  function openEditModal(data){
+    const m = document.getElementById('editModal');
+
+    // isi field
+    document.getElementById('m_pid').value        = data.id;
+    document.getElementById('m_nama').value       = data.nama || '';
+    document.getElementById('m_email').value      = data.email || '';
+    document.getElementById('m_jabatan').value    = data.jabatan || '';
+    document.getElementById('m_perusahaan').value = data.perusahaan || '';
+    document.getElementById('m_no_rekening').value = data.no_rekening || '';
+    document.getElementById('m_no_telp').value    = data.no_telp || '';
+    document.getElementById('m_gaji').value       = data.gaji || 0;
+    document.getElementById('m_status').value     = (data.status ? '1' : '0');
+    document.getElementById('m_siklus').value     = data.siklus || 'A';
+
+    // set action URLs
+    const updBase = "{{ url_for('web.admin_pegawai_update', pid=0) }}"; // /admin/pegawai/0/update
+    const delBase = "{{ url_for('web.admin_pegawai_delete', pid=0) }}"; // /admin/pegawai/0/delete
+    document.getElementById('editForm').action   = updBase.replace('/0/update', `/${data.id}/update`);
+    document.getElementById('deleteForm').action = delBase.replace('/0/delete', `/${data.id}/delete`);
+
+    m.style.display = 'flex';
+  }
+  function closeModal(id){
+    const m = document.getElementById(id);
+    if(!m) return;
+    m.style.display = 'none';
+    const f = m.querySelector('form'); if(f) f.reset();
+  }
+
+  // Wiring tombol Batal + overlay + ESC untuk kedua modal
+  document.addEventListener('DOMContentLoaded', () => {
+    ['addModal','editModal'].forEach(mid=>{
+      const m = document.getElementById(mid);
+      if(!m) return;
+      m.querySelectorAll('[data-close]').forEach(el=>{
+        el.addEventListener('click', ()=>closeModal(mid));
+      });
+      m.addEventListener('click', (e)=>{ if(e.target===m) closeModal(mid); });
+    });
+    window.addEventListener('keydown', e=>{
+      if(e.key==='Escape'){ closeModal('addModal'); closeModal('editModal'); }
+    });
+  });
+</script>
+
+<!-- Kompakkan baris tabel + skin modal -->
+<style>
+  table th, table td { padding:8px 10px; font-size:13px; }
+  .badge { padding:2px 6px; font-size:11px; border-radius:999px; border:1px solid var(--border); }
+  .badge-urg { background:rgba(255, 196, 0, .15); border-color:rgba(255,196,0,.35); color:#ffd54d; }
+  .badge-a   { background:rgba(124,92,255,.12); border-color:rgba(124,92,255,.35); }
+  .badge-b   { background:rgba(34,197,94,.12);  border-color:rgba(34,197,94,.35); }
+
+  .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+           background:rgba(0,0,0,.55); z-index:999; }
+  .modal-skin {
+    max-width:760px; width:96%;
+    background:radial-gradient(120% 140% at 80% -10%, rgba(124,92,255,.12), transparent 60%),
+               linear-gradient(180deg, rgba(17,24,48,.98), rgba(10,14,28,.98));
+    border:1px solid rgba(255,255,255,.1);
+    color:var(--text);
+    border-radius:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.45);
+    padding:18px;
+  }
+  body.theme-new .modal-skin{
+    background:linear-gradient(135deg, #9edfff, #dbf3ff);
+    border-color:#bfe5ff;
+    color:#0f1b2d;
+  }
+  .modal-skin input, .modal-skin select{
+    background:rgba(12,16,36,.86); color:var(--text);
+    border:1px solid var(--border); border-radius:12px; padding:10px 12px;
+  }
+  .modal-skin label{ color:#cfe0ff; font-weight:600; }
+  .pegawai-form{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:12px;
+    align-items:end;
+  }
+  .modal-skin .pegawai-form > div{
+    display:grid;
+    grid-template-columns:140px minmax(0,1fr);
+    align-items:center;
+    column-gap:5px;
+    row-gap:6px;
+    grid-column:span 1 !important;
+  }
+  .modal-skin .pegawai-form > div > label{
+    margin:0;
+  }
+  .pegawai-form .pegawai-form-actions{
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    justify-content:flex-end;
+    gap:8px;
+    margin-top:6px;
+    grid-column:1/-1 !important;
+  }
+  .edit-actions{
+    display:grid;
+    grid-template-columns:repeat(2, 1fr);
+    gap:10px;
+  }
+  .edit-actions .btn{
+    width:100%;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+  }
+  .modal-skin{ position:relative; }
+  .modal-close{
+    position:absolute;
+    top:10px;
+    right:10px;
+    width:40px;
+    height:40px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:transparent;
+    color:var(--text);
+    font-weight:800;
+    font-size:18px;
+    cursor:pointer;
+  }
+  @media (min-width:900px){
+    .pegawai-form{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+    .pegawai-form > div{ grid-column:span 1 !important; }
+  }
+</style>
+
+{% endblock %}

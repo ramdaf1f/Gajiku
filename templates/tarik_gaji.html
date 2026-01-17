@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Tarik Gaji{% endblock %}
+{% block body_class %}employee-group employee-tarik-gaji{% endblock %}
+{% block content %}
+
+{% set enabled_products = enabled_products if enabled_products is defined else ['reg','urg'] %}
+{% set selected_product = selected_product if selected_product is defined else (enabled_products[0] if enabled_products else 'reg') %}
+{% set ppn_enabled = ppn_enabled if ppn_enabled is defined else true %}
+
+<section class="card tarik-gaji-card glass">
+  <h2>Tarik Gaji</h2>
+
+  <p class="muted">
+    Saldo REG tersedia per {{ at_date.strftime('%d %b %Y').lstrip('0') }}:
+    <b>{{ limits.saldo | rupiah }}</b>
+  </p>
+
+  <form method="post" action="{{ url_for('web.tarik_gaji') }}" onsubmit="return handleSubmitTarikGaji(this)">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Produk</label>
+    <select name="produk" id="produk" onchange="recalcFee()" required>
+      {% if 'reg' in enabled_products %}
+        <option value="reg" {% if selected_product == 'reg' %}selected{% endif %}>Tarik Gaji Reg</option>
+      {% endif %}
+      {% if 'urg' in enabled_products %}
+        <option value="urg" {% if selected_product == 'urg' %}selected{% endif %}>Tarik Gaji Urg</option>
+      {% endif %}
+    </select>
+
+    <label>Nominal (Rp)</label>
+    <input type="text" name="nominal" id="nominal" inputmode="numeric" oninput="recalcFee()" required>
+
+    <div class="muted" id="feePreview" style="margin-top:6px;"></div>
+    <div class="muted" id="taxHint" style="margin-top:4px;font-size:12.5px;">
+      {% if ppn_enabled %}
+        Admin fee dikenakan PPN 11%.
+      {% else %}
+        Admin fee tidak dikenakan PPN.
+      {% endif %}
+    </div>
+    {% if 'urg' in enabled_products %}
+      <div id="urgHint" class="hint-urg" style="display:none; margin-top:8px; font-size:12.5px; line-height:1.35;
+            padding:10px 12px; border-radius:12px; border:1px solid rgba(255,200,0,.35);
+            background:linear-gradient(180deg, rgba(255,200,0,.09), rgba(255,200,0,.03));">
+         <b>Info URG:</b>
+         <div id="urgHintText"></div>
+      </div>
+    {% endif %}
+
+    <label>Keterangan (opsional)</label>
+    <input type="text" name="keterangan"
+           placeholder="cth: catatan pengajuan (opsional)">
+
+    <div class="form-actions" style="margin-top:12px">
+      <button class="btn" id="btn-ajukan" type="submit">Apply</button>
+      <a class="btn btn-outline" href="{{ url_for('web.dashboard', tanggal=at_date.isoformat()) }}">Kembali</a>
+    </div>
+
+    <hr style="border-color:var(--border);margin:16px 0">
+    <p class="muted" style="margin:0">
+      <b>Jenis Produk:</b><br>
+      {% if 'reg' in enabled_products %}
+        <span class="badge badge-reg">REG</span> Reguler - admin fee flat {{ ADMIN_FEE | rupiah }}{% if ppn_enabled %} + PPN 11%{% endif %}, saldo mengikuti limit harian (plafon 50% gaji / 30).<br>
+      {% endif %}
+      {% if 'urg' in enabled_products %}
+        <span class="badge badge-urg">URG</span> Urgent - admin fee = ceil(nominal / limit harian) x {{ ADMIN_FEE | rupiah }}{% if ppn_enabled %}, lalu ditambah PPN 11%{% endif %}. <br>
+      {% endif %}
+      {% if 'urg' in enabled_products %}
+        <span class="urg-footnote">Limit URG = sisa plafon (tanpa batas sisa hari).<br>
+        <b>Catatan URG:</b> fee = ceil(nominal / limit harian) x {{ ADMIN_FEE | rupiah }}{% if ppn_enabled %} + PPN 11%{% endif %} - Tipe Siklus {{ limits.siklus }}</span>
+      {% endif %}
+    </p>
+  </form>
+</section>
+
+<script>
+  // angka dasar dari server
+  const LIMIT_HARIAN  = {{ limits.limit_harian|int }};
+  const TOTAL_SUKSES  = {{ limits.total_sukses|int }};
+  const HARI_KE_TODAY = {{ limits.hari_ke|int }};
+  const SALDO_PLAFON  = Math.max({{ limits.plafon|int }} - TOTAL_SUKSES, 0);
+  const ADMIN_FEE_REG = {{ ADMIN_FEE|int }};
+  const PPN_ENABLED = {{ 'true' if ppn_enabled else 'false' }};
+  const PPN_RATE = PPN_ENABLED ? 0.11 : 0;
+
+  function idFormat(num){ try { return (num||0).toLocaleString('id-ID'); } catch(_){ return String(num||0); } }
+  function sanitizeInt(txt){
+    const s = String(txt || '').replace(/[^\d\-]/g,'');
+    return (s && s!=='-') ? parseInt(s,10) : 0;
+  }
+  function addPpn(amount){
+    const base = amount || 0;
+    const ppn = Math.ceil(base * PPN_RATE);
+    return { base, ppn, total: base + ppn };
+  }
+
+  const HAS_URG = !!document.querySelector('#produk option[value="urg"]');
+
+  function recalcFee(){
+    const produkEl = document.getElementById('produk');
+    if(!produkEl) return;
+    if(produkEl.value === 'urg' && !HAS_URG){
+      produkEl.value = 'reg';
+    }
+    const produk   = produkEl.value;
+    const nominal  = sanitizeInt(document.getElementById('nominal').value || 0);
+
+    if (produk === 'urg'){
+      // Limit URG adil = sisa plafon
+      const limitMax = SALDO_PLAFON;
+
+      // Saldo REG tersedia s.d. HARI INI (hak REG)
+      const saldoRegTersedia = Math.max(LIMIT_HARIAN * Math.max(HARI_KE_TODAY, 1) - TOTAL_SUKSES, 0);
+
+      // Split
+      const regPortion = Math.min(nominal, saldoRegTersedia);
+      const urgPortion = Math.max(nominal - regPortion, 0);
+
+      // Fee
+      const feeReg = regPortion > 0 ? ADMIN_FEE_REG : 0;
+      const feeUrg = LIMIT_HARIAN > 0 ? Math.ceil(urgPortion / LIMIT_HARIAN) * ADMIN_FEE_REG : 0;
+      const feeTotal = feeReg + feeUrg;
+      const feeTaxed = addPpn(feeTotal);
+
+      document.getElementById('feePreview').innerHTML =
+        PPN_ENABLED
+          ? `Estimasi admin fee (URG): <b>Rp ${idFormat(feeTaxed.total)}</b> (PPN 11%: Rp ${idFormat(feeTaxed.ppn)})`
+          : `Estimasi admin fee (URG): <b>Rp ${idFormat(feeTaxed.total)}</b> (tanpa PPN)`;
+
+      const hint = document.getElementById('urgHint');
+      const box  = document.getElementById('urgHintText');
+      if(hint && box){
+        box.innerHTML =
+          `Limit URG = Rp ${idFormat(limitMax)}<b> (sisa plafon)</b>.<br>
+           Bagian <b>REG</b> (sampai hari ini) = Rp ${idFormat(saldoRegTersedia)}; 
+           <b>URG</b> (sisanya).<br>
+           Perhitungan fee:
+           REG ${regPortion>0? 'Rp '+idFormat(feeReg): 'tidak ada'}; 
+           URG (ceil(${idFormat(urgPortion)}/${idFormat(LIMIT_HARIAN)})) x ${idFormat(ADMIN_FEE_REG)} = Rp ${idFormat(feeUrg)}.<br>
+           ${PPN_ENABLED ? `PPN 11% dihitung dari total admin fee: Rp ${idFormat(feeTaxed.ppn)}.` : 'Tanpa PPN.'}`;
+        hint.style.display = 'block';
+      }
+    } else {
+      const feeTaxed = addPpn(ADMIN_FEE_REG);
+      document.getElementById('feePreview').textContent =
+        PPN_ENABLED
+          ? `Admin fee (REG): Rp ${idFormat(feeTaxed.total)} (PPN 11%: Rp ${idFormat(feeTaxed.ppn)})`
+          : `Admin fee (REG): Rp ${idFormat(feeTaxed.total)} (tanpa PPN)`;
+      const hint = document.getElementById('urgHint'); if(hint) hint.style.display = 'none';
+    }
+  }
+
+  function handleSubmitTarikGaji(form){
+    // validasi ringan
+    const nominal = sanitizeInt(document.getElementById('nominal').value||0);
+    if(nominal <= 0){ alert('Nominal wajib > 0'); return false; }
+    if(!confirm('Tarik Gaji?')) return false;
+
+    const btn = document.getElementById('btn-ajukan');
+    if(btn){ btn.disabled = true; btn.textContent = 'Memproses…'; }
+    return true;
+  }
+
+  // init preview saat halaman dibuka & saat produk/nominal berubah
+  document.getElementById('produk')?.addEventListener('change', recalcFee);
+  document.getElementById('nominal')?.addEventListener('input', recalcFee);
+  recalcFee();
+</script>
+{% endblock %}

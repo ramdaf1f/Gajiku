@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Pengaturan Akun • GajiKu{% endblock %}
+{% block body_class %}employee-group employee-settings{% endblock %}
+{% block content %}
+<section class="card glass">
+  <h3>Ubah Password (Pegawai)</h3>
+
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Password Lama</label>
+    <input type="password" name="old_password" required>
+
+    <label>Password Baru (min 6)</label>
+    <input type="password" name="new_password" minlength="6" required>
+
+    <label>Konfirmasi Password Baru</label>
+    <input type="password" name="new_password2" minlength="6" required>
+
+    <div class="form-actions">
+      <button class="btn" type="submit">Simpan</button>
+      <a class="btn btn-outline" href="{{ url_for('web.dashboard') }}">Kembali</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
