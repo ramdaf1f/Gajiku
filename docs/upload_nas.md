@@ -25,3 +25,16 @@ docker compose up -d gajiku-app && \
 docker network connect hosting_web gajiku-app || true && \
 docker logs gajiku-app --tail=30
 
+Troubleshooting web down setelah rebuild compose
+```
+[CRITICAL] WORKER TIMEOUT
+[ERROR] Worker was sent SIGKILL! Perhaps out of memory?
+```
+Ini biasanya karena worker Gunicorn kehabisan memory atau request terlalu lama.
+- Cek memory host dan container: `docker stats`, lalu pastikan swap/memory cukup.
+- Cek log OOM: `dmesg | tail -n 50` (kalau ada OOM killer).
+- Kurangi jumlah worker atau limit concurrency (di env/command Gunicorn).
+- Tambah timeout Gunicorn jika request memang lama (mis. export `GUNICORN_TIMEOUT=120`).
+- Pastikan tidak ada job berat synchronous yang harus dipindah ke background.
+
+Catatan compose yang dipakai: `C:\Users\Administrator\Downloads\docker-compose (3).yml`.
