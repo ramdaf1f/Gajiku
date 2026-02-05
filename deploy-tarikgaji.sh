@@ -21,9 +21,17 @@ if [ -f "$DB_PATH_HOST" ]; then
   cp -av "$DB_PATH_HOST" "$APP_DIR/data/tarikgaji.db.bak_$ts"
 fi
 
-# Pull latest code
+# Pull latest code (stash data/ changes so DB exports don't block pull)
 if [ -d .git ]; then
+  had_stash=0
+  if ! git diff --quiet -- data || ! git diff --cached --quiet -- data || [ -n "$(git ls-files -o --exclude-standard -- data)" ]; then
+    git stash -u -- data >/dev/null 2>&1 || true
+    had_stash=1
+  fi
   git pull origin main
+  if [ "$had_stash" -eq 1 ]; then
+    git stash pop >/dev/null 2>&1 || true
+  fi
 else
   echo "ERROR: $APP_DIR is not a git repo (.git missing)" >&2
   exit 1
