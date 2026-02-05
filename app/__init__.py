@@ -1,8 +1,9 @@
 import os
 import secrets
+import time
 import uuid
 
-from flask import Flask, redirect, url_for, session, request, g
+from flask import Flask, redirect, url_for, session, request, g, jsonify
 
 from app.db import close_db, ensure_db
 from app.routes.web import bp as web_bp
@@ -48,6 +49,10 @@ def create_app():
     configure_logging(app)
 
     app.register_blueprint(web_bp)
+
+    @app.get("/ping")
+    def ping():
+        return jsonify({"ok": True, "ts": time.time()})
 
     def _get_csrf_token() -> str:
         token = session.get("_csrf_token")
