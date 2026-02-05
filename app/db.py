@@ -99,6 +99,12 @@ def init_db():
             value TEXT NOT NULL
         );
 
+        -- === Lightweight test writes (for /txn/test) ===
+        CREATE TABLE IF NOT EXISTS txn_tests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL
+        );
+
         -- === App settings (global) ===
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,

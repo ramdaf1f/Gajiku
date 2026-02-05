@@ -1,11 +1,11 @@
 import os
 import secrets
-import time
 import uuid
+from datetime import datetime, timezone
 
 from flask import Flask, redirect, url_for, session, request, g, jsonify
 
-from app.db import close_db, ensure_db
+from app.db import close_db, ensure_db, get_db
 from app.routes.web import bp as web_bp
 from app.tasks.queue import start_worker
 from app.tasks.export_scheduler import start_export_scheduler
@@ -52,7 +52,22 @@ def create_app():
 
     @app.get("/ping")
     def ping():
-        return jsonify({"ok": True, "ts": time.time()})
+        ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        return jsonify({"ok": True, "ts": ts})
+
+    @app.get("/health/db")
+    def health_db():
+        db = get_db()
+        db.execute("SELECT 1").fetchone()
+        return jsonify({"ok": True, "db_ok": True})
+
+    @app.post("/txn/test")
+    def txn_test():
+        db = get_db()
+        ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        cur = db.execute("INSERT INTO txn_tests (created_at) VALUES (?)", (ts,))
+        db.commit()
+        return jsonify({"ok": True, "txn_id": str(cur.lastrowid)})
 
     def _get_csrf_token() -> str:
         token = session.get("_csrf_token")
@@ -79,7 +94,14 @@ def create_app():
     @app.before_request
     def csrf_protect():
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-            if request.endpoint in {"web.login", "web.forgot_password", "web.register"}:
+            if request.endpoint in {
+                "web.login",
+                "web.forgot_password",
+                "web.register",
+                "ping",
+                "health_db",
+                "txn_test",
+            }:
                 return None
             token = session.get("_csrf_token") or ""
             supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token") or ""
