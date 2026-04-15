@@ -1,5 +1,28 @@
+# Python
 .venv/
-.pytest_cache/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Env & config
 .env
+
+# Database (WAJIB)
+*.db
+*.sqlite
+*.sqlite3
+
+# Data folder (WAJIB)
+data/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.gitignore
+
