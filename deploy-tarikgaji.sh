@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/mnt/ssd/hosting/tarikgaji-app"
+APP_DIR="/opt/tarikgaji-app"
 CONTAINER_NAME="tarikgaji-app"
 IMAGE_NAME="hosting-tarikgaji-app"
 PORT="5001"
@@ -49,7 +49,10 @@ docker run -d --name "$CONTAINER_NAME" \
   -e DB_PATH="$DB_PATH_CONTAINER" \
   -e PORT="$PORT" \
   -e TZ="$TZ" \
-  -v "$APP_DIR/data:/app/data" \
+  -e EMAIL_ENABLED=false \
+  -e SMTP_HOST=localhost \
+  -e SMTP_PORT=25 \
+  -v /opt/tarikgaji/data:/app/data \
   -v /etc/localtime:/etc/localtime:ro \
   -v /etc/timezone:/etc/timezone:ro \
   --restart unless-stopped \
