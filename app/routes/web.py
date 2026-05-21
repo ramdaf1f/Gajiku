@@ -21,8 +21,8 @@ def health():
         return ret
     return {
         "version": current_app.config["APP_VERSION"],
-        "admin_fee_reg": current_app.config["ADMIN_FEE"],
-        "admin_fee_urg_per_day": current_app.config["ADMIN_FEE_PER_DAY"],
+        "admin_fee_reg": get_admin_fee_flat(),
+        "admin_fee_urg_per_day": get_admin_fee_flat(),
         "db_path": current_app.config["DB_PATH"],
         "session_user": session.get("user_id"),
         "session_name": session.get("user_name"),
@@ -50,6 +50,15 @@ def parse_int(raw, default=0):
         return int(s)
     except Exception:
         return default
+
+EMPLOYEE_ID_LEN = 15
+EMPLOYEE_ID_RE = re.compile(r"^[A-Za-z0-9]{15}$")
+
+def normalize_employee_id(raw):
+    return (raw or "").strip().upper()
+
+def employee_id_is_valid(value):
+    return bool(EMPLOYEE_ID_RE.fullmatch(value or ""))
 
 # ===== Filter Rupiah =====
 @bp.app_template_filter("rupiah")
@@ -290,6 +299,65 @@ def set_ppn_enabled(enabled: bool) -> None:
         )
     db.commit()
 
+def get_admin_fee_flat() -> int:
+    default_fee = int(current_app.config["ADMIN_FEE"] or 0)
+    db = get_db()
+    row = db.execute(
+        "SELECT value FROM app_settings WHERE key='admin_fee_flat' LIMIT 1"
+    ).fetchone()
+    if not row:
+        return default_fee
+    try:
+        fee = int(str(row["value"] or "").strip())
+    except Exception:
+        return default_fee
+    allowed = {default_fee, default_fee + 2000}
+    return fee if fee in allowed else default_fee
+
+def set_admin_fee_flat(value: int) -> bool:
+    default_fee = int(current_app.config["ADMIN_FEE"] or 0)
+    try:
+        fee = int(value)
+    except Exception:
+        return False
+    if fee not in {default_fee, default_fee + 2000}:
+        return False
+    db = get_db()
+    cur = db.execute(
+        "UPDATE app_settings SET value=? WHERE key='admin_fee_flat'",
+        (str(fee),),
+    )
+    if cur.rowcount == 0:
+        db.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+            ("admin_fee_flat", str(fee)),
+        )
+    db.commit()
+    return True
+
+def get_runtime_force_limit() -> bool:
+    db = get_db()
+    row = db.execute(
+        "SELECT value FROM app_settings WHERE key='runtime_force_limit' LIMIT 1"
+    ).fetchone()
+    if not row:
+        return False
+    return str(row["value"] or "").strip().lower() in {"1", "true", "yes", "on"}
+
+def set_runtime_force_limit(enabled: bool) -> None:
+    value = "1" if enabled else "0"
+    db = get_db()
+    cur = db.execute(
+        "UPDATE app_settings SET value=? WHERE key='runtime_force_limit'",
+        (value,),
+    )
+    if cur.rowcount == 0:
+        db.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+            ("runtime_force_limit", value),
+        )
+    db.commit()
+
 def allowed_avatar(filename: str) -> bool:
     ext = os.path.splitext(filename or "")[1].lower()
     return ext in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -308,6 +376,17 @@ def login():
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
         db = get_db()
+
+        owner_username = str(current_app.config.get("OWNER_USERNAME") or "").strip().lower()
+        owner_password = str(current_app.config.get("OWNER_PASSWORD") or "")
+        if owner_username and owner_password and email == owner_username and password == owner_password:
+            session.clear()
+            session["is_admin"] = True
+            session["is_owner"] = True
+            session["admin_id"] = None
+            session["admin_name"] = current_app.config["ADMIN_USERNAME"]
+            session["admin_email"] = current_app.config["ADMIN_EMAIL"]
+            return redirect(url_for("web.admin_dashboard"))
 
         # --- Admin login (prioritas) ---
         adm = db.execute(
@@ -541,7 +620,7 @@ def dashboard():
         email = (user["email"] or "").strip().lower()
         if email:
             pegawai_info = db.execute(
-                "SELECT no_rekening, no_telp FROM pegawai WHERE LOWER(email)=LOWER(?)",
+                "SELECT id_pegawai, no_rekening, no_telp FROM pegawai WHERE LOWER(email)=LOWER(?)",
                 (email,),
             ).fetchone()
     except Exception:
@@ -660,8 +739,8 @@ def tarik_gaji():
         flash("Silakan login terlebih dahulu.", "error")
         return redirect(url_for("web.login"))
 
-    admin_fee_base = current_app.config["ADMIN_FEE"]
-    admin_fee_per_day = current_app.config["ADMIN_FEE_PER_DAY"]
+    admin_fee_base = get_admin_fee_flat()
+    admin_fee_per_day = admin_fee_base
     ppn_enabled = get_ppn_enabled()
     db      = get_db()
     user    = get_user_by_id(session["user_id"])
@@ -867,7 +946,7 @@ def tarik_gaji():
         try:
             # ambil metadata pegawai via email user
             peg = db.execute("""
-                SELECT p.nama, p.email, p.perusahaan, p.jabatan
+                SELECT p.id_pegawai, p.nama, p.email, p.perusahaan, p.jabatan
                 FROM users u
                 JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
                 WHERE u.id=?
@@ -876,6 +955,7 @@ def tarik_gaji():
             sub = f"[Dana-Talangan] Pengajuan baru ({produk.upper()})"
             body = (
                 f"Tanggal : {at_day.isoformat()}\n"
+                f"ID Pegawai : {(peg['id_pegawai'] if peg and peg['id_pegawai'] else '-')}\n"
                 f"Pegawai : {(peg['nama'] if peg else user['name'])} <{(peg['email'] if peg else user['email'])}>\n"
                 f"Perusahaan/Jabatan : {(peg['perusahaan'] if peg and peg['perusahaan'] else '-')}"
                 f" / {(peg['jabatan'] if peg and peg['jabatan'] else '-')}\n"
@@ -984,6 +1064,7 @@ def admin_login():
 @bp.post("/admin/logout")
 def admin_logout():
     session.pop("is_admin", None)
+    session.pop("is_owner", None)
     session.pop("admin_name", None)
     flash("Anda telah logout admin.", "info")
     return redirect(url_for("web.login"))
@@ -995,6 +1076,20 @@ def admin_pegawai():
     if ret: return ret
     db = get_db()
 
+    # pastikan kolom 'id_pegawai' ada
+    try:
+        db.execute("SELECT id_pegawai FROM pegawai LIMIT 1").fetchone()
+    except Exception:
+        db.execute("ALTER TABLE pegawai ADD COLUMN id_pegawai TEXT DEFAULT ''")
+        db.commit()
+    try:
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_pegawai_id_pegawai "
+            "ON pegawai(id_pegawai) WHERE id_pegawai <> ''"
+        )
+        db.commit()
+    except Exception:
+        pass
     # pastikan kolom 'perusahaan' ada
     try:
         db.execute("SELECT perusahaan FROM pegawai LIMIT 1").fetchone()
@@ -1018,7 +1113,7 @@ def admin_pegawai():
     f_company = (request.args.get("company") or "").strip()
 
     base_sql = """
-        SELECT id, nama, email, jabatan, gaji, status_aktif,
+        SELECT id, COALESCE(id_pegawai,'') AS id_pegawai, nama, email, jabatan, gaji, status_aktif,
                COALESCE(perusahaan,'') AS perusahaan,
                COALESCE(no_rekening,'') AS no_rekening,
                COALESCE(no_telp,'') AS no_telp,
@@ -1030,8 +1125,11 @@ def admin_pegawai():
     params = []
     if q:
         like = f"%{q}%"
-        base_sql += " AND (nama LIKE ? OR email LIKE ? OR jabatan LIKE ? OR COALESCE(perusahaan,'') LIKE ?)"
-        params += [like, like, like, like]
+        base_sql += """ AND (
+            COALESCE(id_pegawai,'') LIKE ? OR nama LIKE ? OR email LIKE ?
+            OR jabatan LIKE ? OR COALESCE(perusahaan,'') LIKE ?
+        )"""
+        params += [like, like, like, like, like]
     if f_company:
         base_sql += " AND COALESCE(perusahaan,'') = ?"
         params.append(f_company)
@@ -1054,6 +1152,7 @@ def admin_pegawai_add():
     ret = require_admin()
     if ret: return ret
 
+    id_pegawai  = normalize_employee_id(request.form.get("id_pegawai"))
     nama        = (request.form.get("nama") or "").strip()
     email       = (request.form.get("email") or "").strip().lower()
     jabatan     = (request.form.get("jabatan") or "").strip()
@@ -1067,20 +1166,26 @@ def admin_pegawai_add():
     if siklus not in ("A", "B"):
         siklus = "B"
 
-    if not nama or not email:
-        flash("Nama dan email wajib diisi.", "error")
+    if not id_pegawai or not nama or not email:
+        flash("ID pegawai, nama, dan email wajib diisi.", "error")
+        return redirect(url_for("web.admin_pegawai"))
+    if not employee_id_is_valid(id_pegawai):
+        flash(f"ID pegawai harus {EMPLOYEE_ID_LEN} karakter alfanumerik.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
     db = get_db()
-    exists = db.execute("SELECT 1 FROM pegawai WHERE email=? OR nama=?", (email, nama)).fetchone()
+    exists = db.execute(
+        "SELECT 1 FROM pegawai WHERE id_pegawai=? OR email=? OR nama=?",
+        (id_pegawai, email, nama),
+    ).fetchone()
     if exists:
-        flash("Nama atau email sudah terdaftar.", "error")
+        flash("ID pegawai, nama, atau email sudah terdaftar.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
     db.execute("""
-        INSERT INTO pegawai (nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_telp, siklus_gaji, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
-    """, (nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_telp, siklus, datetime.now().isoformat(timespec="seconds")))
+        INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_telp, siklus_gaji, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    """, (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_telp, siklus, datetime.now().isoformat(timespec="seconds")))
     db.commit()
 
     flash("Pegawai ditambahkan.", "success")
@@ -1090,6 +1195,7 @@ def admin_pegawai_add():
 def admin_pegawai_update(pid):
     ret = require_admin()
     if ret: return ret
+    id_pegawai = normalize_employee_id(request.form.get("id_pegawai"))
     nama       = (request.form.get("nama") or "").strip()
     email      = (request.form.get("email") or "").strip().lower()
     jabatan    = (request.form.get("jabatan") or "").strip()
@@ -1102,20 +1208,32 @@ def admin_pegawai_update(pid):
     if siklus not in ("A","B"): siklus = "A"
 
     db = get_db()
+    if not id_pegawai:
+        flash("ID pegawai wajib diisi.", "error")
+        return redirect(url_for("web.admin_pegawai"))
+    if not employee_id_is_valid(id_pegawai):
+        flash(f"ID pegawai harus {EMPLOYEE_ID_LEN} karakter alfanumerik.", "error")
+        return redirect(url_for("web.admin_pegawai"))
     row = db.execute("SELECT email FROM pegawai WHERE id=?", (pid,)).fetchone()
     old_email = (row["email"] or "").strip().lower() if row else ""
     # Cek bentrok nama/email dengan record lain
-    exists = db.execute("SELECT id FROM pegawai WHERE (email=? OR nama=?) AND id<>?",
-                        (email, nama, pid)).fetchone()
+    exists_sql = "SELECT id FROM pegawai WHERE (email=? OR nama=?"
+    exists_params = [email, nama]
+    if id_pegawai:
+        exists_sql += " OR COALESCE(id_pegawai,'')=?"
+        exists_params.append(id_pegawai)
+    exists_sql += ") AND id<>?"
+    exists_params.append(pid)
+    exists = db.execute(exists_sql, exists_params).fetchone()
     if exists:
-        flash("Nama/email bentrok dengan data lain.", "error")
+        flash("ID pegawai/nama/email bentrok dengan data lain.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
     # Update master pegawai (termasuk siklus_gaji)
     db.execute("""UPDATE pegawai
-                  SET nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_telp=?, siklus_gaji=?
+                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_telp=?, siklus_gaji=?
                   WHERE id=?""",
-               (nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_telp, siklus, pid))
+               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_telp, siklus, pid))
 
     # Sinkronkan status + email ke akun formal agar login ikut email terbaru
     db.execute(
@@ -1308,10 +1426,17 @@ def admin_dashboard():
     if ret:
         return ret
 
-    admin_fee_base = current_app.config["ADMIN_FEE"]
+    admin_fee_base = get_admin_fee_flat()
     db = get_db()
     enabled_products = get_enabled_products()
     ppn_enabled = get_ppn_enabled()
+    admin_fee_month = (request.args.get("admin_fee_month") or "").strip()
+    if admin_fee_month:
+        try:
+            y, m = [int(x) for x in admin_fee_month.split("-", 1)]
+            date(y, m, 1)
+        except Exception:
+            admin_fee_month = ""
     today = date.today()
 
     # Bulan berjalan (kalender) utk tampilan dashboard
@@ -1499,11 +1624,38 @@ def admin_dashboard():
             ttl_seconds=10,
         )
 
+    fee_recap_where = "WHERE status IN ('sukses', 'on-proses')"
+    fee_recap_params = []
+    if admin_fee_month:
+        fee_recap_where += " AND periode = ?"
+        fee_recap_params.append(admin_fee_month)
+
+    admin_fee_recap_rows = db.execute(f"""
+        SELECT
+          COALESCE(product, 'reg') AS product,
+          COUNT(*) AS trx_count,
+          COALESCE(SUM(admin_fee), 0) AS admin_fee_total
+        FROM transactions
+        {fee_recap_where}
+        GROUP BY COALESCE(product, 'reg')
+        ORDER BY CASE COALESCE(product, 'reg')
+          WHEN 'reg' THEN 1
+          WHEN 'urg' THEN 2
+          ELSE 3
+        END
+    """, fee_recap_params).fetchall()
+    admin_fee_recap_total = sum(int(r["admin_fee_total"] or 0) for r in admin_fee_recap_rows)
+    admin_fee_recap_count = sum(int(r["trx_count"] or 0) for r in admin_fee_recap_rows)
+    admin_fee_recap_label = format_period_label(admin_fee_month) if admin_fee_month else "All"
+
     # --- Transaksi terbaru bulan berjalan (pakai tanggal bulanan)
     recent = db.execute("""
-        SELECT t.tanggal, t.created_at, t.nominal, t.admin_fee, t.status, t.product, u.name AS nama
+        SELECT t.tanggal, t.created_at, t.nominal, t.admin_fee, t.status, t.product,
+               u.name AS nama,
+               COALESCE(p.id_pegawai, '') AS id_pegawai
         FROM transactions t
         JOIN users u ON u.id=t.user_id
+        LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
         WHERE t.tanggal >= ? AND t.tanggal < ?
         ORDER BY t.created_at DESC, t.id DESC
         LIMIT 10
@@ -1512,6 +1664,7 @@ def admin_dashboard():
     # --- Antrian on-proses REG & URG (jangan pakai periode—ambil yang benar2 on-proses)
     pending_reg = db.execute("""
         SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
+               COALESCE(p.id_pegawai, '') AS id_pegawai,
                COALESCE(p.no_rekening, '') AS no_rekening,
                COALESCE(p.no_telp, '') AS no_telp,
                u.name AS nama,
@@ -1526,6 +1679,7 @@ def admin_dashboard():
 
     pending_urg = db.execute("""
         SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
+               COALESCE(p.id_pegawai, '') AS id_pegawai,
                COALESCE(p.no_rekening, '') AS no_rekening,
                COALESCE(p.no_telp, '') AS no_telp,
                u.name AS nama,
@@ -1586,6 +1740,11 @@ def admin_dashboard():
         trend_labels=trend_labels,
         trend_values=trend_values,
         cohort_rows=cohort_rows,
+        admin_fee_month=admin_fee_month,
+        admin_fee_recap_label=admin_fee_recap_label,
+        admin_fee_recap_rows=admin_fee_recap_rows,
+        admin_fee_recap_total=admin_fee_recap_total,
+        admin_fee_recap_count=admin_fee_recap_count,
         queue_stats=queue_stats,
         enabled_products=enabled_products,
         ppn_enabled=ppn_enabled,
@@ -1632,6 +1791,7 @@ def admin_riwayat():
         SELECT t.id, t.tanggal, t.periode, t.nominal, t.admin_fee, t.status, t.product,
                t.keterangan, t.created_at,
                u.name AS nama, u.email AS email_user,
+               COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'') AS jabatan,
                COALESCE(p.no_rekening,'') AS no_rekening
@@ -1645,12 +1805,13 @@ def admin_riwayat():
     if q:
         sql += """ AND (
             LOWER(u.name) LIKE ? OR LOWER(u.email) LIKE ?
+            OR LOWER(COALESCE(p.id_pegawai,'')) LIKE ?
             OR LOWER(COALESCE(p.perusahaan,'')) LIKE ?
             OR LOWER(COALESCE(p.jabatan,'')) LIKE ?
             OR LOWER(COALESCE(p.no_rekening,'')) LIKE ?
         )"""
         q_like = f"%{q.lower()}%"
-        params.extend([q_like, q_like, q_like, q_like, q_like])
+        params.extend([q_like, q_like, q_like, q_like, q_like, q_like])
 
     if status:
         sql += " AND t.status = ?"
@@ -1696,6 +1857,7 @@ def admin_export():
         SELECT t.id, t.tanggal, t.periode,
                u.name   AS pegawai,
                u.email  AS email_user,
+               COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'')    AS jabatan,
                COALESCE(p.no_rekening,'') AS no_rekening,
@@ -1722,11 +1884,11 @@ def admin_export():
     # Buat CSV in-memory (UTF-8-SIG nyaman di Excel)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ID","Tanggal","Periode","Pegawai","Email","Perusahaan","Jabatan","No Rekening",
+    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","No Rekening",
                 "Produk","Nominal","Admin","Status","Keterangan","Dibuat"])
     for r in rows:
         w.writerow([
-            r["id"], r["tanggal"], r["periode"], r["pegawai"], r["email_user"],
+            r["id"], r["tanggal"], r["periode"], r["id_pegawai"], r["pegawai"], r["email_user"],
             r["perusahaan"], r["jabatan"], r["no_rekening"], r["product"], r["nominal"], r["admin_fee"],
             r["status"], (r["keterangan"] or ""), r["created_at"]
         ])
@@ -1773,6 +1935,7 @@ def admin_export_range():
         SELECT t.id, t.tanggal, t.periode,
                u.name   AS pegawai,
                u.email  AS email_user,
+               COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'')    AS jabatan,
                COALESCE(p.no_rekening,'') AS no_rekening,
@@ -1795,11 +1958,11 @@ def admin_export_range():
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ID","Tanggal","Periode","Pegawai","Email","Perusahaan","Jabatan","No Rekening","Siklus",
+    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","No Rekening","Siklus",
                 "Produk","Nominal","Admin","Status","Keterangan","Dibuat"])
     for r in rows:
         w.writerow([
-            r["id"], r["tanggal"], r["periode"], r["pegawai"], r["email_user"],
+            r["id"], r["tanggal"], r["periode"], r["id_pegawai"], r["pegawai"], r["email_user"],
             r["perusahaan"], r["jabatan"], r["no_rekening"], r["siklus"], r["product"], r["nominal"],
             r["admin_fee"], r["status"], (r["keterangan"] or ""), r["created_at"]
         ])
@@ -1830,6 +1993,9 @@ def admin_settings():
 
     db = get_db()
     ppn_enabled = get_ppn_enabled()
+    admin_fee_default = int(current_app.config["ADMIN_FEE"] or 0)
+    admin_fee_new = admin_fee_default + 2000
+    admin_fee_flat = get_admin_fee_flat()
 
     # coba ambil admin dari session id/email; kalau tidak ada, ambil admin pertama
     adm = None
@@ -1844,12 +2010,42 @@ def admin_settings():
         flash("Data admin belum ada. Inisialisasi gagal.", "error")
         return redirect(url_for("web.admin_dashboard"))
 
+    def settings_context():
+        return {
+            "admin": adm,
+            "ppn_enabled": get_ppn_enabled(),
+            "admin_fee_flat": get_admin_fee_flat(),
+            "admin_fee_default": admin_fee_default,
+            "admin_fee_new": admin_fee_new,
+            "is_owner": bool(session.get("is_owner")),
+            "runtime_force_limit": get_runtime_force_limit(),
+        }
+
     if request.method == "POST":
         form_type = request.form.get("form_type") or "password"
         if form_type == "ppn":
             enabled = request.form.get("ppn_enabled") == "1"
             set_ppn_enabled(enabled)
             flash("Pengaturan PPN diperbarui.", "success")
+            return redirect(url_for("web.admin_settings"))
+
+        if form_type == "admin_fee":
+            fee_raw = parse_int(request.form.get("admin_fee_flat"), admin_fee_default)
+            if not set_admin_fee_flat(fee_raw):
+                flash("Pilihan admin fee flat tidak valid.", "error")
+                return render_template("admin_settings.html", **settings_context())
+            flash("Pengaturan admin fee flat diperbarui.", "success")
+            return redirect(url_for("web.admin_settings"))
+
+        if form_type == "runtime_force_limit":
+            if not session.get("is_owner"):
+                return ("", 404)
+            if request.form.get("force_confirmed") != "1":
+                return redirect(url_for("web.admin_settings"))
+            enabled = request.form.get("runtime_force_limit") == "1"
+            set_runtime_force_limit(enabled)
+            if enabled:
+                return ("", 500)
             return redirect(url_for("web.admin_settings"))
 
         old_pw = request.form.get("old_password") or ""
@@ -1861,15 +2057,15 @@ def admin_settings():
         db_ok  = check_password_hash(adm["password_hash"], old_pw)
         if not (env_ok or db_ok):
             flash("Password lama tidak cocok.", "error")
-            return render_template("admin_settings.html", admin=adm, ppn_enabled=ppn_enabled)
+            return render_template("admin_settings.html", **settings_context())
 
         if not password_ok(new_pw):
             flash("Password baru minimal 6 karakter.", "error")
-            return render_template("admin_settings.html", admin=adm, ppn_enabled=ppn_enabled)
+            return render_template("admin_settings.html", **settings_context())
 
         if new_pw != new_pw2:
             flash("Konfirmasi password baru tidak cocok.", "error")
-            return render_template("admin_settings.html", admin=adm, ppn_enabled=ppn_enabled)
+            return render_template("admin_settings.html", **settings_context())
 
         db.execute("UPDATE admins SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), adm["id"]))
         db.commit()
@@ -1877,7 +2073,7 @@ def admin_settings():
         flash("Password admin berhasil diperbarui. Mulai sekarang Anda bisa login menggunakan kredensial DB.", "success")
         return redirect(url_for("web.admin_dashboard"))
 
-    return render_template("admin_settings.html", admin=adm, ppn_enabled=ppn_enabled)
+    return render_template("admin_settings.html", **settings_context())
 
 
 # =========================================================

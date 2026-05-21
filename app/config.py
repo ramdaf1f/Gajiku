@@ -26,3 +26,6 @@ class Config:
     ADMIN_USERNAME = os.environ.get("ADMIN_USER", "admin")
     ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASS", "admin123")
+
+    OWNER_USERNAME = os.environ.get("OWNER_USERNAME", "")
+    OWNER_PASSWORD = os.environ.get("OWNER_PASSWORD", "")

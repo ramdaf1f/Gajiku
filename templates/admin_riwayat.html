@@ -16,7 +16,7 @@
         style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
     <div>
       <label>Cari</label>
-      <input type="text" name="q" placeholder="nama / email / jabatan / perusahaan" value="{{ q or '' }}">
+      <input type="text" name="q" placeholder="ID pegawai / nama / email / jabatan / perusahaan" value="{{ q or '' }}">
     </div>
     <div>
       <label>Produk</label>
@@ -59,13 +59,14 @@
       <thead style="position:sticky;top:0;z-index:1">
         <tr>
           <th style="width:10%">Tanggal</th>
-          <th style="width:10%">Periode</th>
-          <th style="width:16%">Nama</th>
-          <th style="width:12%">Produk</th>
-          <th style="width:12%">Nominal</th>
-          <th style="width:10%">Admin</th>
-          <th style="width:10%">Status</th>
-          <th style="width:20%">Keterangan</th>
+          <th style="width:9%">Periode</th>
+          <th style="width:12%">ID Pegawai</th>
+          <th style="width:14%">Nama</th>
+          <th style="width:10%">Produk</th>
+          <th style="width:11%">Nominal</th>
+          <th style="width:9%">Admin</th>
+          <th style="width:9%">Status</th>
+          <th style="width:16%">Keterangan</th>
         </tr>
       </thead>
       <tbody>
@@ -73,6 +74,7 @@
         <tr>
           <td>{{ r['tanggal']|indo_date }}</td>
           <td>{{ r['periode']|format_period_label }}</td>
+          <td>{{ r['id_pegawai'] or '-' }}</td>
           <td>{{ r['nama'] }}</td>
           <td>
             {% if r['product']=='urg' %}

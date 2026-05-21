@@ -508,6 +508,9 @@ body.theme-new .settings-dropdown{
   gap:10px;
   margin-top:12px;
 }
+.admin-settings .card + .card{
+  margin-top:16px;
+}
 .admin-settings .form-actions .btn{
   width:100%;
   display:inline-flex;

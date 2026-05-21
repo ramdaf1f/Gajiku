@@ -68,6 +68,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS pegawai (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_pegawai TEXT DEFAULT '',
             nama TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE,
             jabatan TEXT,
@@ -138,6 +139,22 @@ def init_db():
 
     _migrate_users_email_unique(db)
     _fix_transactions_fk_users_old(db)
+
+    # === MIGRASI: tambahkan kolom id_pegawai bila belum ada ===
+    try:
+        db.execute("ALTER TABLE pegawai ADD COLUMN id_pegawai TEXT DEFAULT ''")
+        db.commit()
+        print("[DB] kolom id_pegawai ditambahkan.")
+    except Exception:
+        pass
+    try:
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_pegawai_id_pegawai "
+            "ON pegawai(id_pegawai) WHERE id_pegawai <> ''"
+        )
+        db.commit()
+    except Exception:
+        pass
 
     # === MIGRASI: tambahkan kolom siklus_gaji bila belum ada ===
     try:

@@ -63,7 +63,8 @@
 </section>
 
 <section class="card glass" style="margin-bottom:12px">
-  No rekening : {{ (pegawai_info['no_rekening'] if pegawai_info else '') or '-' }}
+  ID Pegawai : {{ (pegawai_info['id_pegawai'] if pegawai_info else '') or '-' }}
+  </br> No rekening : {{ (pegawai_info['no_rekening'] if pegawai_info else '') or '-' }}
   </br> Nomor telephone : {{ (pegawai_info['no_telp'] if pegawai_info else '') or '-' }}
   </br> Siklus : {{ limits.siklus or '-' }}
   </br>- Siklus A = gajian akhir bulan
