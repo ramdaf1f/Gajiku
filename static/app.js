@@ -112,104 +112,144 @@ function confirmSubmit(){
     });
   }
 
-  function makePairCell(primaryCell, secondaryCell, primaryLabel, secondaryLabel){
-    var item = document.createElement('div');
-    item.className = 'mobile-pair-cell';
-
-    if (!secondaryCell) {
-      item.classList.add('mobile-pair-cell--single');
+  function buildColumnPairs(labels){
+    var pairs = [];
+    for (var i = 0; i < labels.length; i += 1) {
+      var primaryLabel = labels[i] || '';
+      var secondaryLabel = labels[i + 1] || '';
+      var shouldPair = secondaryLabel && !isActionLabel(primaryLabel) && !isActionLabel(secondaryLabel);
+      pairs.push({
+        primary: primaryLabel,
+        secondary: shouldPair ? secondaryLabel : '',
+        action: isActionLabel(primaryLabel),
+        start: i,
+        end: shouldPair ? i + 1 : i,
+      });
+      if (shouldPair) i += 1;
     }
-    if (isActionLabel(primaryLabel)) {
-      item.classList.add('mobile-pair-cell--action');
-    }
-    copyResponsiveData(item, [primaryCell, secondaryCell]);
-
-    var label = document.createElement('div');
-    label.className = 'mobile-pair-label';
-
-    var primaryLabelEl = document.createElement('b');
-    primaryLabelEl.className = 'mobile-pair-label-primary';
-    primaryLabelEl.textContent = primaryLabel || '';
-    label.appendChild(primaryLabelEl);
-
-    if (secondaryLabel) {
-      var secondaryLabelEl = document.createElement('span');
-      secondaryLabelEl.className = 'mobile-pair-label-secondary';
-      secondaryLabelEl.textContent = secondaryLabel;
-      label.appendChild(secondaryLabelEl);
-    }
-
-    var primaryValue = document.createElement('div');
-    primaryValue.className = 'mobile-pair-value-primary';
-    copyStateClasses(primaryValue, primaryCell);
-    primaryValue.appendChild(cloneCellContent(primaryCell));
-
-    item.appendChild(label);
-    item.appendChild(primaryValue);
-
-    if (secondaryCell) {
-      var secondaryValue = document.createElement('div');
-      secondaryValue.className = 'mobile-pair-value-secondary';
-      copyStateClasses(secondaryValue, secondaryCell);
-      secondaryValue.appendChild(cloneCellContent(secondaryCell));
-      item.appendChild(secondaryValue);
-    }
-
-    return item;
+    return pairs;
   }
 
-  function makeFullCell(cell){
-    var item = document.createElement('div');
-    item.className = 'mobile-pair-cell mobile-pair-cell--full';
-    item.appendChild(cloneCellContent(cell));
-    copyResponsiveData(item, [cell]);
-    return item;
+  function pairSpanForRange(pairs, start, span){
+    var end = start + Math.max(span, 1) - 1;
+    return pairs.filter(function(pair){
+      return pair.start <= end && pair.end >= start;
+    }).length || 1;
+  }
+
+  function makeHeaderCell(pair){
+    var th = document.createElement('th');
+    th.className = 'mobile-stack-head-cell';
+    if (pair.action) th.classList.add('mobile-stack-cell--action');
+
+    var primary = document.createElement('b');
+    primary.className = 'mobile-stack-label-primary';
+    primary.textContent = pair.primary || '';
+    th.appendChild(primary);
+
+    if (pair.secondary) {
+      var secondary = document.createElement('span');
+      secondary.className = 'mobile-stack-label-secondary';
+      secondary.textContent = pair.secondary;
+      th.appendChild(secondary);
+    }
+
+    return th;
+  }
+
+  function makeDataCell(primaryCell, secondaryCell, primaryLabel){
+    var td = document.createElement('td');
+    td.className = 'mobile-stack-cell';
+    if (!secondaryCell) td.classList.add('mobile-stack-cell--single');
+    if (isActionLabel(primaryLabel)) td.classList.add('mobile-stack-cell--action');
+    copyResponsiveData(td, [primaryCell, secondaryCell]);
+
+    var primary = document.createElement('div');
+    primary.className = 'mobile-stack-value-primary';
+    copyStateClasses(primary, primaryCell);
+    primary.appendChild(cloneCellContent(primaryCell));
+    td.appendChild(primary);
+
+    if (secondaryCell) {
+      var secondary = document.createElement('div');
+      secondary.className = 'mobile-stack-value-secondary';
+      copyStateClasses(secondary, secondaryCell);
+      secondary.appendChild(cloneCellContent(secondaryCell));
+      td.appendChild(secondary);
+    }
+
+    return td;
+  }
+
+  function makeFullDataCell(cell, colspan){
+    var td = document.createElement('td');
+    td.className = 'mobile-stack-cell mobile-stack-cell--full';
+    td.colSpan = Math.max(colspan, 1);
+    copyResponsiveData(td, [cell]);
+    td.appendChild(cloneCellContent(cell));
+    return td;
   }
 
   function buildMobileTable(table, labels){
-    var mobile = document.createElement('div');
-    mobile.className = 'mobile-pair-table';
+    var pairs = buildColumnPairs(labels);
+    var mobile = document.createElement('table');
+    mobile.className = 'mobile-stack-table';
 
-    Array.from(table.querySelectorAll('tbody tr, tfoot tr')).forEach(function(row){
-      var cells = Array.from(row.children).filter(function(cell){
-        return cell.matches('td, th');
-      });
-      if (!cells.length) return;
+    var thead = document.createElement('thead');
+    var headRow = document.createElement('tr');
+    pairs.forEach(function(pair){
+      headRow.appendChild(makeHeaderCell(pair));
+    });
+    thead.appendChild(headRow);
+    mobile.appendChild(thead);
 
-      var mobileRow = document.createElement('div');
-      mobileRow.className = 'mobile-pair-row';
-      if (row.closest('tfoot')) {
-        mobileRow.classList.add('mobile-pair-row--total');
-      }
+    ['tbody', 'tfoot'].forEach(function(sectionName){
+      var sourceSection = table.querySelector(sectionName);
+      if (!sourceSection) return;
 
-      var labelIndex = 0;
-      for (var i = 0; i < cells.length; i += 1) {
-        var cell = cells[i];
-        var span = Number(cell.getAttribute('colspan') || 1);
-        var primaryLabel = labels[labelIndex] || '';
+      var section = document.createElement(sectionName);
+      Array.from(sourceSection.rows).forEach(function(row){
+        var cells = Array.from(row.children).filter(function(cell){
+          return cell.matches('td, th');
+        });
+        if (!cells.length) return;
+
+        var mobileRow = document.createElement('tr');
+        var labelIndex = 0;
+        for (var i = 0; i < cells.length; i += 1) {
+          var cell = cells[i];
+          var span = Number(cell.getAttribute('colspan') || 1);
+          var primaryLabel = labels[labelIndex] || '';
 
         if (span > 1 || cells.length === 1) {
-          mobileRow.appendChild(makeFullCell(cell));
+          var fullSpan = cells.length === 1 ? pairs.length : pairSpanForRange(pairs, labelIndex, span);
+          mobileRow.appendChild(makeFullDataCell(cell, fullSpan));
           labelIndex += span;
           continue;
         }
 
-        var nextCell = cells[i + 1];
-        var nextSpan = nextCell ? Number(nextCell.getAttribute('colspan') || 1) : 1;
-        var secondaryLabel = labels[labelIndex + 1] || '';
-        var shouldPair = nextCell && nextSpan === 1 && !isActionLabel(primaryLabel) && !isActionLabel(secondaryLabel);
+          var nextCell = cells[i + 1];
+          var nextSpan = nextCell ? Number(nextCell.getAttribute('colspan') || 1) : 1;
+          var secondaryLabel = labels[labelIndex + 1] || '';
+          var shouldPair = nextCell && nextSpan === 1 && secondaryLabel && !isActionLabel(primaryLabel) && !isActionLabel(secondaryLabel);
 
-        if (shouldPair) {
-          mobileRow.appendChild(makePairCell(cell, nextCell, primaryLabel, secondaryLabel));
-          i += 1;
-          labelIndex += 2;
-        } else {
-          mobileRow.appendChild(makePairCell(cell, null, primaryLabel, ''));
-          labelIndex += 1;
+          if (shouldPair) {
+            mobileRow.appendChild(makeDataCell(cell, nextCell, primaryLabel));
+            i += 1;
+            labelIndex += 2;
+          } else if (textOf(cell) || cell.children.length) {
+            mobileRow.appendChild(makeDataCell(cell, null, primaryLabel));
+            labelIndex += 1;
+          } else {
+            labelIndex += 1;
+          }
         }
-      }
+        section.appendChild(mobileRow);
+      });
 
-      mobile.appendChild(mobileRow);
+      if (section.rows.length) {
+        mobile.appendChild(section);
+      }
     });
 
     return mobile;

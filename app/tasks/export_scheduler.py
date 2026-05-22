@@ -13,6 +13,17 @@ _scheduler_started = False
 
 EXPORT_INTERVAL_SECONDS = 2 * 24 * 60 * 60
 LAST_RUN_KEY = "export_csv_last_run"
+LEGACY_REKENING_LABELS = {
+    "Rekening Bank Utama": "No_Rek Bank",
+    "Rekening Bank Lain": "No_Rek Bank 2",
+    "Rekening E-Wallet": "Rek E-Wallet",
+    "No Rekening": "No_Rek Bank",
+}
+
+
+def _short_rekening_label(value):
+    label = (value or "").strip()
+    return LEGACY_REKENING_LABELS.get(label, label or "No_Rek Bank")
 
 
 def _get_setting(db, key: str):
@@ -60,7 +71,7 @@ def _build_csv_bytes(rows):
             "Perusahaan",
             "Jabatan",
             "Tipe Rekening",
-            "No Rekening",
+            "No_Rek Bank",
             "Produk",
             "Nominal",
             "Admin",
@@ -80,7 +91,7 @@ def _build_csv_bytes(rows):
                 r["email_user"],
                 r["perusahaan"],
                 r["jabatan"],
-                r["rekening_tujuan_label"],
+                _short_rekening_label(r["rekening_tujuan_label"]),
                 r["no_rekening"],
                 r["product"],
                 r["nominal"],
@@ -105,7 +116,7 @@ def _export_current_period_csv():
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'') AS jabatan,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
         FROM transactions t
         JOIN users u ON u.id = t.user_id

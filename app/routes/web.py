@@ -54,6 +54,17 @@ def parse_int(raw, default=0):
 EMPLOYEE_ID_MAX_LEN = 15
 EMPLOYEE_ID_RE = re.compile(rf"^[A-Za-z0-9]{{1,{EMPLOYEE_ID_MAX_LEN}}}$")
 EWALLET_RE = re.compile(r"^[A-Za-z0-9 ]*$")
+REKENING_LABELS = {
+    "bank_utama": "No_Rek Bank",
+    "bank_lain": "No_Rek Bank 2",
+    "ewallet": "Rek E-Wallet",
+}
+LEGACY_REKENING_LABELS = {
+    "Rekening Bank Utama": REKENING_LABELS["bank_utama"],
+    "Rekening Bank Lain": REKENING_LABELS["bank_lain"],
+    "Rekening E-Wallet": REKENING_LABELS["ewallet"],
+    "No Rekening": REKENING_LABELS["bank_utama"],
+}
 
 def normalize_employee_id(raw):
     return (raw or "").strip().upper()
@@ -64,6 +75,10 @@ def employee_id_is_valid(value):
 def ewallet_is_valid(value):
     return bool(EWALLET_RE.fullmatch(value or ""))
 
+def short_rekening_label(value):
+    label = (value or "").strip()
+    return LEGACY_REKENING_LABELS.get(label, label or REKENING_LABELS["bank_utama"])
+
 def _row_value(row, key, default=""):
     try:
         return row[key] if row and key in row.keys() else default
@@ -72,9 +87,9 @@ def _row_value(row, key, default=""):
 
 def build_rekening_options(pegawai_row):
     items = [
-        ("bank_utama", "Rekening Bank Utama", _row_value(pegawai_row, "no_rekening")),
-        ("bank_lain", "Rekening Bank Lain", _row_value(pegawai_row, "no_rekening_lain")),
-        ("ewallet", "Rekening E-Wallet", _row_value(pegawai_row, "rekening_ewallet")),
+        ("bank_utama", REKENING_LABELS["bank_utama"], _row_value(pegawai_row, "no_rekening")),
+        ("bank_lain", REKENING_LABELS["bank_lain"], _row_value(pegawai_row, "no_rekening_lain")),
+        ("ewallet", REKENING_LABELS["ewallet"], _row_value(pegawai_row, "rekening_ewallet")),
     ]
     options = []
     for key, label, value in items:
@@ -110,6 +125,10 @@ def indo_date(value):
 @bp.app_template_filter("format_period_label")
 def format_period_label_filter(value):
     return format_period_label(str(value))
+
+@bp.app_template_filter("rekening_label")
+def rekening_label_filter(value):
+    return short_rekening_label(value)
 
 # ===== Helpers =====
 def month_key(d: date) -> str: return d.strftime("%Y-%m")
@@ -628,7 +647,7 @@ def dashboard():
         """SELECT t.id, t.tanggal, t.nominal, t.admin_fee, t.status, t.product, t.created_at,
                   t.keterangan, t.cancel_until,
                   COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-                  COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
+                  COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                   COALESCE(p.no_telp,'') AS no_telp
            FROM transactions t
            JOIN users u ON u.id = t.user_id
@@ -1009,7 +1028,7 @@ def tarik_gaji():
                 f"Pegawai : {(peg['nama'] if peg else user['name'])} <{(peg['email'] if peg else user['email'])}>\n"
                 f"Perusahaan/Jabatan : {(peg['perusahaan'] if peg and peg['perusahaan'] else '-')}"
                 f" / {(peg['jabatan'] if peg and peg['jabatan'] else '-')}\n"
-                f"Rekening Tujuan : {rekening_tujuan_label} - {rekening_tujuan}\n"
+                f"Rekening Tujuan : {short_rekening_label(rekening_tujuan_label)} - {rekening_tujuan}\n"
                 f"Nominal : {rupiah_format(nominal)}\n"
                 f"Admin   : {rupiah_format(admin_fee)}\n"
                 f"Produk  : {produk.upper()}\n"
@@ -1459,7 +1478,7 @@ def riwayat_view():
     rows = db.execute(
         f"""SELECT t.tanggal, t.periode, t.nominal, t.admin_fee, t.status, t.keterangan, t.product,
                     COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-                    COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label
+                    COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label
              FROM transactions t
              JOIN users u ON u.id = t.user_id
              LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
@@ -1739,7 +1758,7 @@ def admin_dashboard():
         SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
                COALESCE(p.id_pegawai, '') AS id_pegawai,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                COALESCE(p.no_telp, '') AS no_telp,
                u.name AS nama,
                COALESCE(p.jabatan, '') AS jabatan,
@@ -1755,7 +1774,7 @@ def admin_dashboard():
         SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
                COALESCE(p.id_pegawai, '') AS id_pegawai,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                COALESCE(p.no_telp, '') AS no_telp,
                u.name AS nama,
                COALESCE(p.jabatan, '') AS jabatan,
@@ -1870,7 +1889,7 @@ def admin_riwayat():
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'') AS jabatan,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label
         FROM transactions t
         JOIN users u ON u.id = t.user_id
         LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
@@ -1937,7 +1956,7 @@ def admin_export():
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'')    AS jabatan,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
       FROM transactions t
       JOIN users u         ON u.id = t.user_id
@@ -1961,12 +1980,12 @@ def admin_export():
     # Buat CSV in-memory (UTF-8-SIG nyaman di Excel)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","Tipe Rekening","No Rekening",
+    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","Tipe Rekening","No_Rek Bank",
                 "Produk","Nominal","Admin","Status","Keterangan","Dibuat"])
     for r in rows:
         w.writerow([
             r["id"], r["tanggal"], r["periode"], r["id_pegawai"], r["pegawai"], r["email_user"],
-            r["perusahaan"], r["jabatan"], r["rekening_tujuan_label"], r["no_rekening"], r["product"], r["nominal"], r["admin_fee"],
+            r["perusahaan"], r["jabatan"], short_rekening_label(r["rekening_tujuan_label"]), r["no_rekening"], r["product"], r["nominal"], r["admin_fee"],
             r["status"], (r["keterangan"] or ""), r["created_at"]
         ])
 
@@ -2016,7 +2035,7 @@ def admin_export_range():
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'')    AS jabatan,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                COALESCE(p.siklus_gaji,'A') AS siklus,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
       FROM transactions t
@@ -2036,12 +2055,12 @@ def admin_export_range():
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","Tipe Rekening","No Rekening","Siklus",
+    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","Tipe Rekening","No_Rek Bank","Siklus",
                 "Produk","Nominal","Admin","Status","Keterangan","Dibuat"])
     for r in rows:
         w.writerow([
             r["id"], r["tanggal"], r["periode"], r["id_pegawai"], r["pegawai"], r["email_user"],
-            r["perusahaan"], r["jabatan"], r["rekening_tujuan_label"], r["no_rekening"], r["siklus"], r["product"], r["nominal"],
+            r["perusahaan"], r["jabatan"], short_rekening_label(r["rekening_tujuan_label"]), r["no_rekening"], r["siklus"], r["product"], r["nominal"],
             r["admin_fee"], r["status"], (r["keterangan"] or ""), r["created_at"]
         ])
 

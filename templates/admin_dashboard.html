@@ -225,10 +225,7 @@
           <td>{{ t['perusahaan'] }}</td>
           <td>{{ "{:,}".format(t['nominal']).replace(",", ".") }}</td>
           <td>{{ "{:,}".format(t['admin_fee']).replace(",", ".") }}</td>
-          <td>
-            <span class="muted">{{ t['rekening_tujuan_label'] or 'Rekening Bank Utama' }}</span><br>
-            {{ t['no_rekening'] or '-' }}
-          </td>
+          <td>{{ t['no_rekening'] or '-' }}</td>
           <td>{{ t['no_telp'] or '-' }}</td>
           <td>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -281,10 +278,7 @@
             <td>{{ t['perusahaan'] }}</td>
             <td>{{ "{:,}".format(t['nominal']).replace(",", ".") }}</td>
             <td>{{ "{:,}".format(t['admin_fee']).replace(",", ".") }}</td>
-            <td>
-              <span class="muted">{{ t['rekening_tujuan_label'] or 'Rekening Bank Utama' }}</span><br>
-              {{ t['no_rekening'] or '-' }}
-            </td>
+            <td>{{ t['no_rekening'] or '-' }}</td>
             <td>{{ t['no_telp'] or '-' }}</td>
             <td>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -751,7 +745,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
     const month = months[(parseInt(dparts[1], 10) || 1) - 1] || dparts[1];
     const year = dparts[0];
     const time = timeStr ? timeStr.slice(0,5) : '--:--';
-    return day + ' ' + month + ' ' + year + ' |<br>' + time;
+    return day + ' ' + month + ' ' + year + ' | ' + time;
   }
   function apply(){
     document.querySelectorAll('.admin-time').forEach(td=>{

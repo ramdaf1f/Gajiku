@@ -94,7 +94,7 @@
             {% endif %}
           </td>
           <td>
-            <span class="muted">{{ r['rekening_tujuan_label'] or 'Rekening Bank Utama' }}</span><br>
+            <span class="muted">{{ (r['rekening_tujuan_label'] or 'No_Rek Bank') | rekening_label }}</span><br>
             {{ r['no_rekening'] or '-' }}
           </td>
           <td>{{ r['keterangan'] or '-' }}</td>
