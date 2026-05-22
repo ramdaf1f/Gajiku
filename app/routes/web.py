@@ -53,12 +53,35 @@ def parse_int(raw, default=0):
 
 EMPLOYEE_ID_LEN = 15
 EMPLOYEE_ID_RE = re.compile(r"^[A-Za-z0-9]{15}$")
+EWALLET_RE = re.compile(r"^[A-Za-z0-9 ]*$")
 
 def normalize_employee_id(raw):
     return (raw or "").strip().upper()
 
 def employee_id_is_valid(value):
     return bool(EMPLOYEE_ID_RE.fullmatch(value or ""))
+
+def ewallet_is_valid(value):
+    return bool(EWALLET_RE.fullmatch(value or ""))
+
+def _row_value(row, key, default=""):
+    try:
+        return row[key] if row and key in row.keys() else default
+    except Exception:
+        return default
+
+def build_rekening_options(pegawai_row):
+    items = [
+        ("bank_utama", "Rekening Bank Utama", _row_value(pegawai_row, "no_rekening")),
+        ("bank_lain", "Rekening Bank Lain", _row_value(pegawai_row, "no_rekening_lain")),
+        ("ewallet", "Rekening E-Wallet", _row_value(pegawai_row, "rekening_ewallet")),
+    ]
+    options = []
+    for key, label, value in items:
+        value = (value or "").strip()
+        if value:
+            options.append({"key": key, "label": label, "value": value})
+    return options
 
 # ===== Filter Rupiah =====
 @bp.app_template_filter("rupiah")
@@ -604,7 +627,8 @@ def dashboard():
     rows = db.execute(
         """SELECT t.id, t.tanggal, t.nominal, t.admin_fee, t.status, t.product, t.created_at,
                   t.keterangan, t.cancel_until,
-                  COALESCE(p.no_rekening,'') AS no_rekening,
+                  COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+                  COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
                   COALESCE(p.no_telp,'') AS no_telp
            FROM transactions t
            JOIN users u ON u.id = t.user_id
@@ -620,7 +644,8 @@ def dashboard():
         email = (user["email"] or "").strip().lower()
         if email:
             pegawai_info = db.execute(
-                "SELECT id_pegawai, no_rekening, no_telp FROM pegawai WHERE LOWER(email)=LOWER(?)",
+                """SELECT id_pegawai, no_rekening, no_rekening_lain, rekening_ewallet, no_telp
+                   FROM pegawai WHERE LOWER(email)=LOWER(?)""",
                 (email,),
             ).fetchone()
     except Exception:
@@ -748,6 +773,34 @@ def tarik_gaji():
     limits  = compute_limits(int(user["gaji"] or 0), at_date, user["id"])
     enabled_products = get_enabled_products()
     selected_product = enabled_products[0] if enabled_products else "reg"
+    pegawai_rekening = None
+    try:
+        email = (user["email"] or "").strip().lower()
+        if email:
+            pegawai_rekening = db.execute(
+                """SELECT no_rekening, no_rekening_lain, rekening_ewallet
+                   FROM pegawai WHERE LOWER(email)=LOWER(?)""",
+                (email,),
+            ).fetchone()
+    except Exception:
+        pegawai_rekening = None
+    rekening_options = build_rekening_options(pegawai_rekening)
+    default_rekening_key = rekening_options[0]["key"] if rekening_options else ""
+
+    def render_tarik(form_date, form_limits, product=None, rekening_key=None):
+        return render_template(
+            "tarik_gaji.html",
+            user=user,
+            at_date=form_date,
+            limits=form_limits,
+            ADMIN_FEE=admin_fee_base,
+            ADMIN_FEE_PER_DAY=admin_fee_per_day,
+            ppn_enabled=ppn_enabled,
+            enabled_products=enabled_products,
+            selected_product=product or selected_product,
+            rekening_options=rekening_options,
+            selected_rekening_key=rekening_key or default_rekening_key,
+        )
 
     # ---- HARD GATE: akun formal harus aktif sekarang (cek langsung ke DB) ----
     fresh_active = get_formal_status()
@@ -770,39 +823,46 @@ def tarik_gaji():
             day = today.day
         if day < 1 or day > last_day:
             flash(f"Tanggal tidak valid (1-{last_day}).", "error")
-            return render_template("tarik_gaji.html",
-                                   user=user, at_date=at_date, limits=limits,
-                                   ADMIN_FEE=admin_fee_base, ADMIN_FEE_PER_DAY=admin_fee_per_day,
-                                   ppn_enabled=ppn_enabled,
-                                   enabled_products=enabled_products,
-                                   selected_product=selected_product)
+            return render_tarik(at_date, limits)
 
         at_day  = date(today.year, today.month, day)
         produk  = (request.form.get("produk") or "reg").strip().lower()  # 'reg' | 'urg'
         if produk not in enabled_products:
             flash("Produk tidak aktif. Pilih produk lain.", "error")
-            return render_template("tarik_gaji.html",
-                                   user=user, at_date=at_day,
-                                   limits=compute_limits(int(user["gaji"] or 0), at_day, user["id"]),
-                                   ADMIN_FEE=admin_fee_base, ADMIN_FEE_PER_DAY=admin_fee_per_day,
-                                   ppn_enabled=ppn_enabled,
-                                   enabled_products=enabled_products,
-                                   selected_product=selected_product)
+            return render_tarik(
+                at_day,
+                compute_limits(int(user["gaji"] or 0), at_day, user["id"]),
+                selected_product,
+                request.form.get("rekening_tujuan_key"),
+            )
         selected_product = produk
         nominal = parse_int(request.form.get("nominal"), 0)
         ket     = (request.form.get("keterangan") or "").strip()
         urg_lock_until = None  # default, hanya terisi bila produk URG
+        selected_rekening_key = (request.form.get("rekening_tujuan_key") or "").strip()
+        rekening_by_key = {opt["key"]: opt for opt in rekening_options}
+        rekening_choice = rekening_by_key.get(selected_rekening_key)
+
+        if not rekening_choice:
+            flash("Pilih rekening tujuan yang tersedia.", "error")
+            return render_tarik(
+                at_day,
+                compute_limits(int(user["gaji"] or 0), at_day, user["id"]),
+                selected_product,
+                selected_rekening_key,
+            )
+        rekening_tujuan = rekening_choice["value"]
+        rekening_tujuan_label = rekening_choice["label"]
 
 
         if nominal <= 0:
             flash("Nominal tarik gaji wajib > 0.", "error")
-            return render_template("tarik_gaji.html",
-                                   user=user, at_date=at_day,
-                                   limits=compute_limits(int(user["gaji"] or 0), at_day, user["id"]),
-                                   ADMIN_FEE=admin_fee_base, ADMIN_FEE_PER_DAY=admin_fee_per_day,
-                                   ppn_enabled=ppn_enabled,
-                                   enabled_products=enabled_products,
-                                   selected_product=selected_product)
+            return render_tarik(
+                at_day,
+                compute_limits(int(user["gaji"] or 0), at_day, user["id"]),
+                selected_product,
+                request.form.get("rekening_tujuan_key"),
+            )
 
         # --- Limit untuk hari yang diminta ---
         # {plafon, limit_harian, hari_ke, total_sukses, saldo, periode_key, siklus}
@@ -826,12 +886,7 @@ def tarik_gaji():
             # untuk REG pakai saldo harian (sudah memperhitungkan siklus A/B)
             if nominal > lim_day["saldo"]:
                 flash(f"Permintaan melebihi limit plafon harian. Sisa hari ini: {rupiah_format(lim_day['saldo'])}.", "error")
-                return render_template("tarik_gaji.html",
-                                       user=user, at_date=at_day, limits=lim_day,
-                                       ADMIN_FEE=admin_fee_base, ADMIN_FEE_PER_DAY=admin_fee_per_day,
-                                       ppn_enabled=ppn_enabled,
-                                       enabled_products=enabled_products,
-                                       selected_product=selected_product)
+                return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)
             admin_fee = apply_ppn(admin_fee_base)
 		
         else:
@@ -889,14 +944,7 @@ def tarik_gaji():
                     f"Permintaan melebihi limit URG. Maksimal URG saat ini: {rupiah_format(limit_urg_max)} (= sisa plafon).",
                     "error"
                 )
-                return render_template(
-                    "tarik_gaji.html",
-                    user=user, at_date=at_day, limits=lim_day,
-                    ADMIN_FEE=admin_fee_base, ADMIN_FEE_PER_DAY=admin_fee_per_day,
-                    ppn_enabled=ppn_enabled,
-                    enabled_products=enabled_products,
-                    selected_product=selected_product
-                )
+                return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)
 
             # Saldo REG tersedia s.d. HARI INI
             saldo_reg_tersedia = max(limit_harian * hari_ke - total_sukses, 0)
@@ -924,8 +972,8 @@ def tarik_gaji():
         # --- Simpan transaksi on-proses ---
         db.execute("""
             INSERT INTO transactions
-            (user_id, tanggal, periode, nominal, admin_fee, status, keterangan, created_at, product, cancel_until, urg_lock_until)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            (user_id, tanggal, periode, nominal, admin_fee, status, keterangan, rekening_tujuan, rekening_tujuan_label, created_at, product, cancel_until, urg_lock_until)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             user["id"],
             at_day.isoformat(),
@@ -934,6 +982,8 @@ def tarik_gaji():
             admin_fee,
             "on-proses",
             ket,
+            rekening_tujuan,
+            rekening_tujuan_label,
             datetime.now().isoformat(timespec="seconds"),
             produk,
             cancel_until,
@@ -959,6 +1009,7 @@ def tarik_gaji():
                 f"Pegawai : {(peg['nama'] if peg else user['name'])} <{(peg['email'] if peg else user['email'])}>\n"
                 f"Perusahaan/Jabatan : {(peg['perusahaan'] if peg and peg['perusahaan'] else '-')}"
                 f" / {(peg['jabatan'] if peg and peg['jabatan'] else '-')}\n"
+                f"Rekening Tujuan : {rekening_tujuan_label} - {rekening_tujuan}\n"
                 f"Nominal : {rupiah_format(nominal)}\n"
                 f"Admin   : {rupiah_format(admin_fee)}\n"
                 f"Produk  : {produk.upper()}\n"
@@ -975,12 +1026,7 @@ def tarik_gaji():
         return redirect(url_for("web.dashboard", tanggal=at_day.isoformat()))
 
     # ===================== GET =====================
-    return render_template("tarik_gaji.html",
-                           user=user, at_date=at_date, limits=limits,
-                           ADMIN_FEE=admin_fee_base, ADMIN_FEE_PER_DAY=admin_fee_per_day,
-                           ppn_enabled=ppn_enabled,
-                           enabled_products=enabled_products,
-                           selected_product=selected_product)
+    return render_tarik(at_date, limits)
 
 # Redirect URL lama agar tidak memutus link yang sudah ada
 @bp.route("/pencairan", methods=["GET", "POST"])
@@ -1102,6 +1148,18 @@ def admin_pegawai():
     except Exception:
         db.execute("ALTER TABLE pegawai ADD COLUMN no_rekening TEXT DEFAULT ''")
         db.commit()
+    # pastikan kolom 'no_rekening_lain' ada
+    try:
+        db.execute("SELECT no_rekening_lain FROM pegawai LIMIT 1").fetchone()
+    except Exception:
+        db.execute("ALTER TABLE pegawai ADD COLUMN no_rekening_lain TEXT DEFAULT ''")
+        db.commit()
+    # pastikan kolom 'rekening_ewallet' ada
+    try:
+        db.execute("SELECT rekening_ewallet FROM pegawai LIMIT 1").fetchone()
+    except Exception:
+        db.execute("ALTER TABLE pegawai ADD COLUMN rekening_ewallet TEXT DEFAULT ''")
+        db.commit()
     # pastikan kolom 'no_telp' ada
     try:
         db.execute("SELECT no_telp FROM pegawai LIMIT 1").fetchone()
@@ -1116,6 +1174,8 @@ def admin_pegawai():
         SELECT id, COALESCE(id_pegawai,'') AS id_pegawai, nama, email, jabatan, gaji, status_aktif,
                COALESCE(perusahaan,'') AS perusahaan,
                COALESCE(no_rekening,'') AS no_rekening,
+               COALESCE(no_rekening_lain,'') AS no_rekening_lain,
+               COALESCE(rekening_ewallet,'') AS rekening_ewallet,
                COALESCE(no_telp,'') AS no_telp,
                siklus_gaji,
                created_at
@@ -1128,8 +1188,10 @@ def admin_pegawai():
         base_sql += """ AND (
             COALESCE(id_pegawai,'') LIKE ? OR nama LIKE ? OR email LIKE ?
             OR jabatan LIKE ? OR COALESCE(perusahaan,'') LIKE ?
+            OR COALESCE(no_rekening,'') LIKE ? OR COALESCE(no_rekening_lain,'') LIKE ?
+            OR COALESCE(rekening_ewallet,'') LIKE ?
         )"""
-        params += [like, like, like, like, like]
+        params += [like, like, like, like, like, like, like, like]
     if f_company:
         base_sql += " AND COALESCE(perusahaan,'') = ?"
         params.append(f_company)
@@ -1158,6 +1220,8 @@ def admin_pegawai_add():
     jabatan     = (request.form.get("jabatan") or "").strip()
     perusahaan  = (request.form.get("perusahaan") or "").strip()
     no_rekening = (request.form.get("no_rekening") or "").strip()
+    no_rekening_lain = (request.form.get("no_rekening_lain") or "").strip()
+    rekening_ewallet = (request.form.get("rekening_ewallet") or "").strip()
     no_telp     = (request.form.get("no_telp") or "").strip()
     gaji        = parse_int(request.form.get("gaji"), 0)
     status      = 1 if request.form.get("status") == "1" else 0
@@ -1172,6 +1236,9 @@ def admin_pegawai_add():
     if not employee_id_is_valid(id_pegawai):
         flash(f"ID pegawai harus {EMPLOYEE_ID_LEN} karakter alfanumerik.", "error")
         return redirect(url_for("web.admin_pegawai"))
+    if not ewallet_is_valid(rekening_ewallet):
+        flash("Rekening e-wallet hanya boleh berisi huruf, angka, dan spasi.", "error")
+        return redirect(url_for("web.admin_pegawai"))
 
     db = get_db()
     exists = db.execute(
@@ -1183,9 +1250,9 @@ def admin_pegawai_add():
         return redirect(url_for("web.admin_pegawai"))
 
     db.execute("""
-        INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_telp, siklus_gaji, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    """, (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_telp, siklus, datetime.now().isoformat(timespec="seconds")))
+        INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus_gaji, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, datetime.now().isoformat(timespec="seconds")))
     db.commit()
 
     flash("Pegawai ditambahkan.", "success")
@@ -1201,6 +1268,8 @@ def admin_pegawai_update(pid):
     jabatan    = (request.form.get("jabatan") or "").strip()
     perusahaan = (request.form.get("perusahaan") or "").strip()
     no_rekening = (request.form.get("no_rekening") or "").strip()
+    no_rekening_lain = (request.form.get("no_rekening_lain") or "").strip()
+    rekening_ewallet = (request.form.get("rekening_ewallet") or "").strip()
     no_telp    = (request.form.get("no_telp") or "").strip()
     gaji       = parse_int(request.form.get("gaji"), 0)
     status     = 1 if request.form.get("status") == "1" else 0
@@ -1213,6 +1282,9 @@ def admin_pegawai_update(pid):
         return redirect(url_for("web.admin_pegawai"))
     if not employee_id_is_valid(id_pegawai):
         flash(f"ID pegawai harus {EMPLOYEE_ID_LEN} karakter alfanumerik.", "error")
+        return redirect(url_for("web.admin_pegawai"))
+    if not ewallet_is_valid(rekening_ewallet):
+        flash("Rekening e-wallet hanya boleh berisi huruf, angka, dan spasi.", "error")
         return redirect(url_for("web.admin_pegawai"))
     row = db.execute("SELECT email FROM pegawai WHERE id=?", (pid,)).fetchone()
     old_email = (row["email"] or "").strip().lower() if row else ""
@@ -1231,9 +1303,9 @@ def admin_pegawai_update(pid):
 
     # Update master pegawai (termasuk siklus_gaji)
     db.execute("""UPDATE pegawai
-                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_telp=?, siklus_gaji=?
+                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_rekening_lain=?, rekening_ewallet=?, no_telp=?, siklus_gaji=?
                   WHERE id=?""",
-               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_telp, siklus, pid))
+               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, pid))
 
     # Sinkronkan status + email ke akun formal agar login ikut email terbaru
     db.execute(
@@ -1386,7 +1458,8 @@ def riwayat_view():
 
     rows = db.execute(
         f"""SELECT t.tanggal, t.periode, t.nominal, t.admin_fee, t.status, t.keterangan, t.product,
-                    COALESCE(p.no_rekening,'') AS no_rekening
+                    COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+                    COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label
              FROM transactions t
              JOIN users u ON u.id = t.user_id
              LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
@@ -1665,7 +1738,8 @@ def admin_dashboard():
     pending_reg = db.execute("""
         SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
                COALESCE(p.id_pegawai, '') AS id_pegawai,
-               COALESCE(p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
                COALESCE(p.no_telp, '') AS no_telp,
                u.name AS nama,
                COALESCE(p.jabatan, '') AS jabatan,
@@ -1680,7 +1754,8 @@ def admin_dashboard():
     pending_urg = db.execute("""
         SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
                COALESCE(p.id_pegawai, '') AS id_pegawai,
-               COALESCE(p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
                COALESCE(p.no_telp, '') AS no_telp,
                u.name AS nama,
                COALESCE(p.jabatan, '') AS jabatan,
@@ -1794,7 +1869,8 @@ def admin_riwayat():
                COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'') AS jabatan,
-               COALESCE(p.no_rekening,'') AS no_rekening
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label
         FROM transactions t
         JOIN users u ON u.id = t.user_id
         LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
@@ -1808,7 +1884,7 @@ def admin_riwayat():
             OR LOWER(COALESCE(p.id_pegawai,'')) LIKE ?
             OR LOWER(COALESCE(p.perusahaan,'')) LIKE ?
             OR LOWER(COALESCE(p.jabatan,'')) LIKE ?
-            OR LOWER(COALESCE(p.no_rekening,'')) LIKE ?
+            OR LOWER(COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '')) LIKE ?
         )"""
         q_like = f"%{q.lower()}%"
         params.extend([q_like, q_like, q_like, q_like, q_like, q_like])
@@ -1860,7 +1936,8 @@ def admin_export():
                COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'')    AS jabatan,
-               COALESCE(p.no_rekening,'') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
       FROM transactions t
       JOIN users u         ON u.id = t.user_id
@@ -1884,12 +1961,12 @@ def admin_export():
     # Buat CSV in-memory (UTF-8-SIG nyaman di Excel)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","No Rekening",
+    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","Tipe Rekening","No Rekening",
                 "Produk","Nominal","Admin","Status","Keterangan","Dibuat"])
     for r in rows:
         w.writerow([
             r["id"], r["tanggal"], r["periode"], r["id_pegawai"], r["pegawai"], r["email_user"],
-            r["perusahaan"], r["jabatan"], r["no_rekening"], r["product"], r["nominal"], r["admin_fee"],
+            r["perusahaan"], r["jabatan"], r["rekening_tujuan_label"], r["no_rekening"], r["product"], r["nominal"], r["admin_fee"],
             r["status"], (r["keterangan"] or ""), r["created_at"]
         ])
 
@@ -1938,7 +2015,8 @@ def admin_export_range():
                COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'')    AS jabatan,
-               COALESCE(p.no_rekening,'') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
                COALESCE(p.siklus_gaji,'A') AS siklus,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
       FROM transactions t
@@ -1958,12 +2036,12 @@ def admin_export_range():
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","No Rekening","Siklus",
+    w.writerow(["ID","Tanggal","Periode","ID Pegawai","Pegawai","Email","Perusahaan","Jabatan","Tipe Rekening","No Rekening","Siklus",
                 "Produk","Nominal","Admin","Status","Keterangan","Dibuat"])
     for r in rows:
         w.writerow([
             r["id"], r["tanggal"], r["periode"], r["id_pegawai"], r["pegawai"], r["email_user"],
-            r["perusahaan"], r["jabatan"], r["no_rekening"], r["siklus"], r["product"], r["nominal"],
+            r["perusahaan"], r["jabatan"], r["rekening_tujuan_label"], r["no_rekening"], r["siklus"], r["product"], r["nominal"],
             r["admin_fee"], r["status"], (r["keterangan"] or ""), r["created_at"]
         ])
 

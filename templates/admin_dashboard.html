@@ -211,7 +211,7 @@
           <th>Project</th>
           <th>Nominal</th>
           <th>Admin</th>
-          <th>No Rekening</th>   <!-- baru -->
+          <th>Rekening Tujuan</th>
           <th>No Telp</th>
           <th style="width:220px;">Aksi</th>
         </tr>
@@ -225,7 +225,10 @@
           <td>{{ t['perusahaan'] }}</td>
           <td>{{ "{:,}".format(t['nominal']).replace(",", ".") }}</td>
           <td>{{ "{:,}".format(t['admin_fee']).replace(",", ".") }}</td>
-          <td>{{ t['no_rekening'] or '-' }}</td> <!-- baru -->
+          <td>
+            <span class="muted">{{ t['rekening_tujuan_label'] or 'Rekening Bank Utama' }}</span><br>
+            {{ t['no_rekening'] or '-' }}
+          </td>
           <td>{{ t['no_telp'] or '-' }}</td>
           <td>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -264,7 +267,7 @@
             <th>Project</th>
             <th>Nominal</th>
             <th>Admin</th>
-            <th>No Rekening</th>   <!-- baru -->
+            <th>Rekening Tujuan</th>
             <th>No Telp</th>
             <th style="width:220px;">Aksi</th>
           </tr>
@@ -278,7 +281,10 @@
             <td>{{ t['perusahaan'] }}</td>
             <td>{{ "{:,}".format(t['nominal']).replace(",", ".") }}</td>
             <td>{{ "{:,}".format(t['admin_fee']).replace(",", ".") }}</td>
-            <td>{{ t['no_rekening'] or '-' }}</td> <!-- baru -->
+            <td>
+              <span class="muted">{{ t['rekening_tujuan_label'] or 'Rekening Bank Utama' }}</span><br>
+              {{ t['no_rekening'] or '-' }}
+            </td>
             <td>{{ t['no_telp'] or '-' }}</td>
             <td>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">

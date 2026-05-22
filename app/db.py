@@ -50,6 +50,8 @@ def init_db():
             admin_fee INTEGER NOT NULL,
             status TEXT NOT NULL,             -- 'sukses' | 'ditolak' | 'on-proses' | 'dibatalkan'
             keterangan TEXT,
+            rekening_tujuan TEXT DEFAULT '',
+            rekening_tujuan_label TEXT DEFAULT '',
             created_at TEXT NOT NULL,
             product TEXT DEFAULT 'reg',       -- 'reg' | 'urg'
             cancel_until TEXT,                -- ISO timestamp, window pembatalan
@@ -76,6 +78,8 @@ def init_db():
             status_aktif INTEGER DEFAULT 0,
             perusahaan TEXT DEFAULT '',
             no_rekening TEXT DEFAULT '',
+            no_rekening_lain TEXT DEFAULT '',
+            rekening_ewallet TEXT DEFAULT '',
             no_telp TEXT DEFAULT '',
             created_at TEXT NOT NULL
         );
@@ -170,6 +174,20 @@ def init_db():
         print("[DB] kolom no_rekening ditambahkan.")
     except sqlite3.OperationalError:
         pass
+    # === MIGRASI: tambahkan kolom rekening bank lain bila belum ada ===
+    try:
+        db.execute("ALTER TABLE pegawai ADD COLUMN no_rekening_lain TEXT DEFAULT ''")
+        db.commit()
+        print("[DB] kolom no_rekening_lain ditambahkan.")
+    except sqlite3.OperationalError:
+        pass
+    # === MIGRASI: tambahkan kolom rekening e-wallet bila belum ada ===
+    try:
+        db.execute("ALTER TABLE pegawai ADD COLUMN rekening_ewallet TEXT DEFAULT ''")
+        db.commit()
+        print("[DB] kolom rekening_ewallet ditambahkan.")
+    except sqlite3.OperationalError:
+        pass
     # === MIGRASI: tambahkan kolom no_telp bila belum ada ===
     try:
         db.execute("ALTER TABLE pegawai ADD COLUMN no_telp TEXT DEFAULT ''")
@@ -227,6 +245,20 @@ def init_db():
     try:
         db.execute("ALTER TABLE transactions ADD COLUMN urg_lock_until TEXT")
         db.commit()
+    except Exception:
+        pass
+
+    # --- rekening tujuan yang dipilih saat transaksi dibuat ---
+    try:
+        db.execute("ALTER TABLE transactions ADD COLUMN rekening_tujuan TEXT DEFAULT ''")
+        db.commit()
+        print("[DB] kolom rekening_tujuan ditambahkan.")
+    except Exception:
+        pass
+    try:
+        db.execute("ALTER TABLE transactions ADD COLUMN rekening_tujuan_label TEXT DEFAULT ''")
+        db.commit()
+        print("[DB] kolom rekening_tujuan_label ditambahkan.")
     except Exception:
         pass
 
@@ -336,6 +368,8 @@ def _fix_transactions_fk_users_old(db):
                 admin_fee INTEGER NOT NULL,
                 status TEXT NOT NULL,
                 keterangan TEXT,
+                rekening_tujuan TEXT DEFAULT '',
+                rekening_tujuan_label TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 product TEXT DEFAULT 'reg',
                 cancel_until TEXT,
@@ -355,6 +389,8 @@ def _fix_transactions_fk_users_old(db):
             "admin_fee",
             "status",
             "keterangan",
+            "rekening_tujuan",
+            "rekening_tujuan_label",
             "created_at",
             "product",
             "cancel_until",

@@ -6,6 +6,8 @@
 {% set enabled_products = enabled_products if enabled_products is defined else ['reg','urg'] %}
 {% set selected_product = selected_product if selected_product is defined else (enabled_products[0] if enabled_products else 'reg') %}
 {% set ppn_enabled = ppn_enabled if ppn_enabled is defined else true %}
+{% set rekening_options = rekening_options if rekening_options is defined else [] %}
+{% set selected_rekening_key = selected_rekening_key if selected_rekening_key is defined else (rekening_options[0]['key'] if rekening_options else '') %}
 
 <section class="card tarik-gaji-card glass">
   <h2>Tarik Gaji</h2>
@@ -26,6 +28,24 @@
         <option value="urg" {% if selected_product == 'urg' %}selected{% endif %}>Tarik Gaji Urg</option>
       {% endif %}
     </select>
+
+    <label>Rekening Tujuan</label>
+    {% if rekening_options %}
+      <div class="rekening-toggle" role="radiogroup" aria-label="Rekening tujuan">
+        {% for opt in rekening_options %}
+          <label class="rekening-option">
+            <input type="radio" name="rekening_tujuan_key" value="{{ opt.key }}" required
+                   {% if opt.key == selected_rekening_key %}checked{% endif %}>
+            <span>
+              <b>{{ opt.label }}</b>
+              <small>{{ opt.value }}</small>
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="rekening-empty muted">Rekening tujuan belum tersedia. Hubungi admin.</div>
+    {% endif %}
 
     <label>Nominal (Rp)</label>
     <input type="text" name="nominal" id="nominal" inputmode="numeric" oninput="recalcFee()" required>
@@ -52,7 +72,7 @@
            placeholder="cth: catatan pengajuan (opsional)">
 
     <div class="form-actions" style="margin-top:12px">
-      <button class="btn" id="btn-ajukan" type="submit">Apply</button>
+      <button class="btn" id="btn-ajukan" type="submit" {% if not rekening_options %}disabled{% endif %}>Apply</button>
       <a class="btn btn-outline" href="{{ url_for('web.dashboard', tanggal=at_date.isoformat()) }}">Kembali</a>
     </div>
 
@@ -154,6 +174,10 @@
     // validasi ringan
     const nominal = sanitizeInt(document.getElementById('nominal').value||0);
     if(nominal <= 0){ alert('Nominal wajib > 0'); return false; }
+    if(!form.querySelector('input[name="rekening_tujuan_key"]:checked')){
+      alert('Pilih rekening tujuan');
+      return false;
+    }
     if(!confirm('Tarik Gaji?')) return false;
 
     const btn = document.getElementById('btn-ajukan');
@@ -166,4 +190,45 @@
   document.getElementById('nominal')?.addEventListener('input', recalcFee);
   recalcFee();
 </script>
+
+<style>
+  .rekening-toggle{
+    display:grid;
+    gap:8px;
+    margin:6px 0 12px;
+  }
+  .rekening-option{
+    display:flex;
+    align-items:stretch;
+    cursor:pointer;
+  }
+  .rekening-option input{
+    position:absolute;
+    opacity:0;
+    pointer-events:none;
+  }
+  .rekening-option span{
+    width:100%;
+    display:grid;
+    gap:4px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:rgba(255,255,255,.04);
+  }
+  .rekening-option input:checked + span{
+    border-color:var(--accent);
+    box-shadow:0 0 0 2px rgba(124,92,255,.22);
+  }
+  .rekening-option small{
+    color:var(--muted);
+    overflow-wrap:anywhere;
+  }
+  .rekening-empty{
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    margin:6px 0 12px;
+  }
+</style>
 {% endblock %}

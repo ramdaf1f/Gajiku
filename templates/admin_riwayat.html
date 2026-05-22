@@ -66,7 +66,8 @@
           <th style="width:11%">Nominal</th>
           <th style="width:9%">Admin</th>
           <th style="width:9%">Status</th>
-          <th style="width:16%">Keterangan</th>
+          <th style="width:13%">Rekening</th>
+          <th style="width:13%">Keterangan</th>
         </tr>
       </thead>
       <tbody>
@@ -91,6 +92,10 @@
             {% else %}
               {{ r['status'] }}
             {% endif %}
+          </td>
+          <td>
+            <span class="muted">{{ r['rekening_tujuan_label'] or 'Rekening Bank Utama' }}</span><br>
+            {{ r['no_rekening'] or '-' }}
           </td>
           <td>{{ r['keterangan'] or '-' }}</td>
         </tr>

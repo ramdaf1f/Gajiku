@@ -59,6 +59,7 @@ def _build_csv_bytes(rows):
             "Email",
             "Perusahaan",
             "Jabatan",
+            "Tipe Rekening",
             "No Rekening",
             "Produk",
             "Nominal",
@@ -79,6 +80,7 @@ def _build_csv_bytes(rows):
                 r["email_user"],
                 r["perusahaan"],
                 r["jabatan"],
+                r["rekening_tujuan_label"],
                 r["no_rekening"],
                 r["product"],
                 r["nominal"],
@@ -102,7 +104,8 @@ def _export_current_period_csv():
                COALESCE(p.id_pegawai,'') AS id_pegawai,
                COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'') AS jabatan,
-               COALESCE(p.no_rekening,'') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'Rekening Bank Utama') AS rekening_tujuan_label,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
         FROM transactions t
         JOIN users u ON u.id = t.user_id
