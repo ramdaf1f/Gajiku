@@ -130,7 +130,7 @@
     <h3 style="margin-top:0">Tambah Pegawai</h3>
     <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.admin_pegawai_add') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div style="grid-column:span 3"><label>ID Pegawai</label><input name="id_pegawai" maxlength="15" minlength="15" pattern="[A-Za-z0-9]{15}" placeholder="15 karakter" autocomplete="off" required></div>
+      <div style="grid-column:span 3"><label>ID Pegawai</label><input name="id_pegawai" maxlength="15" pattern="[A-Za-z0-9]{1,15}" placeholder="maks. 15 karakter" autocomplete="off" required></div>
       <div style="grid-column:span 3"><label>Nama</label><input name="nama" required></div>
       <div style="grid-column:span 3"><label>Email</label><input name="email" type="email" required></div>
       <div style="grid-column:span 3"><label>Jabatan</label><input name="jabatan"></div>
@@ -170,7 +170,7 @@
     <form id="editForm" class="pegawai-form" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="pid" id="m_pid">
-      <div style="grid-column:span 3"><label>ID Pegawai</label><input id="m_id_pegawai" name="id_pegawai" maxlength="15" minlength="15" pattern="[A-Za-z0-9]{15}" placeholder="15 karakter" autocomplete="off" required></div>
+      <div style="grid-column:span 3"><label>ID Pegawai</label><input id="m_id_pegawai" name="id_pegawai" maxlength="15" pattern="[A-Za-z0-9]{1,15}" placeholder="maks. 15 karakter" autocomplete="off" required></div>
       <div style="grid-column:span 3"><label>Nama</label><input id="m_nama" name="nama" required></div>
       <div style="grid-column:span 3"><label>Email</label><input id="m_email" name="email" type="email" required></div>
       <div style="grid-column:span 3"><label>Jabatan</label><input id="m_jabatan" name="jabatan"></div>

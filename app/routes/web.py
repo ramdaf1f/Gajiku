@@ -51,8 +51,8 @@ def parse_int(raw, default=0):
     except Exception:
         return default
 
-EMPLOYEE_ID_LEN = 15
-EMPLOYEE_ID_RE = re.compile(r"^[A-Za-z0-9]{15}$")
+EMPLOYEE_ID_MAX_LEN = 15
+EMPLOYEE_ID_RE = re.compile(rf"^[A-Za-z0-9]{{1,{EMPLOYEE_ID_MAX_LEN}}}$")
 EWALLET_RE = re.compile(r"^[A-Za-z0-9 ]*$")
 
 def normalize_employee_id(raw):
@@ -1234,7 +1234,7 @@ def admin_pegawai_add():
         flash("ID pegawai, nama, dan email wajib diisi.", "error")
         return redirect(url_for("web.admin_pegawai"))
     if not employee_id_is_valid(id_pegawai):
-        flash(f"ID pegawai harus {EMPLOYEE_ID_LEN} karakter alfanumerik.", "error")
+        flash(f"ID pegawai maksimal {EMPLOYEE_ID_MAX_LEN} karakter alfanumerik.", "error")
         return redirect(url_for("web.admin_pegawai"))
     if not ewallet_is_valid(rekening_ewallet):
         flash("Rekening e-wallet hanya boleh berisi huruf, angka, dan spasi.", "error")
@@ -1281,7 +1281,7 @@ def admin_pegawai_update(pid):
         flash("ID pegawai wajib diisi.", "error")
         return redirect(url_for("web.admin_pegawai"))
     if not employee_id_is_valid(id_pegawai):
-        flash(f"ID pegawai harus {EMPLOYEE_ID_LEN} karakter alfanumerik.", "error")
+        flash(f"ID pegawai maksimal {EMPLOYEE_ID_MAX_LEN} karakter alfanumerik.", "error")
         return redirect(url_for("web.admin_pegawai"))
     if not ewallet_is_valid(rekening_ewallet):
         flash("Rekening e-wallet hanya boleh berisi huruf, angka, dan spasi.", "error")

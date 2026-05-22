@@ -29,23 +29,34 @@
       {% endif %}
     </select>
 
-    <label>Rekening Tujuan</label>
-    {% if rekening_options %}
-      <div class="rekening-toggle" role="radiogroup" aria-label="Rekening tujuan">
-        {% for opt in rekening_options %}
-          <label class="rekening-option">
-            <input type="radio" name="rekening_tujuan_key" value="{{ opt.key }}" required
-                   {% if opt.key == selected_rekening_key %}checked{% endif %}>
-            <span>
-              <b>{{ opt.label }}</b>
-              <small>{{ opt.value }}</small>
-            </span>
-          </label>
-        {% endfor %}
+    <div class="rekening-field">
+      <div class="rekening-field-head">
+        <label class="rekening-field-label">Rekening Tujuan</label>
+        {% if rekening_options %}
+          <span class="rekening-field-count">{{ rekening_options|length }} opsi</span>
+        {% endif %}
       </div>
-    {% else %}
-      <div class="rekening-empty muted">Rekening tujuan belum tersedia. Hubungi admin.</div>
-    {% endif %}
+      {% if rekening_options %}
+        <div class="rekening-toggle" role="radiogroup" aria-label="Rekening tujuan">
+          {% for opt in rekening_options %}
+            <label class="rekening-option">
+              <input type="radio" name="rekening_tujuan_key" value="{{ opt.key }}" required
+                     {% if opt.key == selected_rekening_key %}checked{% endif %}>
+              <span class="rekening-option-card">
+                <span class="rekening-option-icon rekening-option-icon-{{ opt.key|replace('_', '-') }}" aria-hidden="true"></span>
+                <span class="rekening-option-copy">
+                  <b>{{ opt.label }}</b>
+                  <small>{{ opt.value }}</small>
+                </span>
+                <span class="rekening-option-check" aria-hidden="true"></span>
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="rekening-empty muted">Rekening tujuan belum tersedia. Hubungi admin.</div>
+      {% endif %}
+    </div>
 
     <label>Nominal (Rp)</label>
     <input type="text" name="nominal" id="nominal" inputmode="numeric" oninput="recalcFee()" required>
@@ -191,44 +202,4 @@
   recalcFee();
 </script>
 
-<style>
-  .rekening-toggle{
-    display:grid;
-    gap:8px;
-    margin:6px 0 12px;
-  }
-  .rekening-option{
-    display:flex;
-    align-items:stretch;
-    cursor:pointer;
-  }
-  .rekening-option input{
-    position:absolute;
-    opacity:0;
-    pointer-events:none;
-  }
-  .rekening-option span{
-    width:100%;
-    display:grid;
-    gap:4px;
-    padding:10px 12px;
-    border:1px solid var(--border);
-    border-radius:8px;
-    background:rgba(255,255,255,.04);
-  }
-  .rekening-option input:checked + span{
-    border-color:var(--accent);
-    box-shadow:0 0 0 2px rgba(124,92,255,.22);
-  }
-  .rekening-option small{
-    color:var(--muted);
-    overflow-wrap:anywhere;
-  }
-  .rekening-empty{
-    padding:10px 12px;
-    border:1px solid var(--border);
-    border-radius:8px;
-    margin:6px 0 12px;
-  }
-</style>
 {% endblock %}

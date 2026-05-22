@@ -62,15 +62,57 @@
   </form>
 </section>
 
-<section class="card glass" style="margin-bottom:12px">
-  ID Pegawai : {{ (pegawai_info['id_pegawai'] if pegawai_info else '') or '-' }}
-  </br> Rekening bank utama : {{ (pegawai_info['no_rekening'] if pegawai_info else '') or '-' }}
-  </br> Rekening bank lain : {{ (pegawai_info['no_rekening_lain'] if pegawai_info else '') or '-' }}
-  </br> Rekening e-wallet : {{ (pegawai_info['rekening_ewallet'] if pegawai_info else '') or '-' }}
-  </br> Nomor telephone : {{ (pegawai_info['no_telp'] if pegawai_info else '') or '-' }}
-  </br> Siklus : {{ limits.siklus or '-' }}
-  </br>- Siklus A = gajian akhir bulan
-  </br>- Siklus B = gajian tengah bulan
+<section class="card glass employee-info-card" aria-label="Informasi pegawai">
+  <div class="employee-info-head">
+    <div>
+      <p class="employee-info-kicker">Informasi Pegawai</p>
+      <h3>Data & Rekening</h3>
+    </div>
+    <span class="employee-cycle-badge">Siklus {{ limits.siklus or '-' }}</span>
+  </div>
+
+  <div class="employee-info-list">
+    <div class="employee-info-row employee-info-row--id">
+      <span class="employee-info-icon employee-info-icon-id" aria-hidden="true"></span>
+      <span class="employee-info-copy">
+        <span class="employee-info-label">ID Pegawai</span>
+        <span class="employee-info-value">{{ (pegawai_info['id_pegawai'] if pegawai_info else '') or '-' }}</span>
+      </span>
+    </div>
+    <div class="employee-info-row">
+      <span class="employee-info-icon employee-info-icon-bank" aria-hidden="true"></span>
+      <span class="employee-info-copy">
+        <span class="employee-info-label">Rekening Bank Utama</span>
+        <span class="employee-info-value">{{ (pegawai_info['no_rekening'] if pegawai_info else '') or '-' }}</span>
+      </span>
+    </div>
+    <div class="employee-info-row">
+      <span class="employee-info-icon employee-info-icon-bank" aria-hidden="true"></span>
+      <span class="employee-info-copy">
+        <span class="employee-info-label">Rekening Bank Lain</span>
+        <span class="employee-info-value">{{ (pegawai_info['no_rekening_lain'] if pegawai_info else '') or '-' }}</span>
+      </span>
+    </div>
+    <div class="employee-info-row">
+      <span class="employee-info-icon employee-info-icon-wallet" aria-hidden="true"></span>
+      <span class="employee-info-copy">
+        <span class="employee-info-label">Rekening E-Wallet</span>
+        <span class="employee-info-value">{{ (pegawai_info['rekening_ewallet'] if pegawai_info else '') or '-' }}</span>
+      </span>
+    </div>
+    <div class="employee-info-row">
+      <span class="employee-info-icon employee-info-icon-phone" aria-hidden="true"></span>
+      <span class="employee-info-copy">
+        <span class="employee-info-label">No. Telepon</span>
+        <span class="employee-info-value">{{ (pegawai_info['no_telp'] if pegawai_info else '') or '-' }}</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="employee-cycle-note" aria-label="Keterangan siklus gaji">
+    <span><i class="cycle-dot cycle-dot-a" aria-hidden="true"></i><b>A</b> gajian akhir bulan</span>
+    <span><i class="cycle-dot cycle-dot-b" aria-hidden="true"></i><b>B</b> gajian tengah bulan</span>
+  </div>
 </section>
 
 <section class="card glass">
@@ -190,54 +232,54 @@
 
   function qsa(s){return Array.from(document.querySelectorAll(s));}
   function tickLocalCountdown(){
-    qsa('td[data-txid] .countdown-pill').forEach(el=>{
+    qsa('[data-txid] .countdown-pill').forEach(el=>{
       let n = parseInt(el.getAttribute('data-remaining')||'0',10);
       if(n>0){
         n--;
         el.setAttribute('data-remaining', n);
         el.textContent = n;
         el.style.display = '';
-        const td = el.closest('td');
+        const td = el.closest('[data-txid]');
         const note = td ? td.querySelector('.countdown-expired') : null;
         if(note) note.style.display = 'none';
       }
       if(n<=0){
         el.style.display = 'none';
-        const td = el.closest('td'); if(!td) return;
+        const td = el.closest('[data-txid]'); if(!td) return;
         const note = td.querySelector('.countdown-expired');
         if(note) note.style.display = 'inline';
       }
     });
   }
   function pollServer(){
-    const ids = qsa('td[data-txid]').map(td=>td.getAttribute('data-txid')).join(',');
+    const ids = Array.from(new Set(qsa('[data-txid]').map(td=>td.getAttribute('data-txid')))).join(',');
     if(!ids) return;
     fetch(`{{ url_for('web.api_tx_status') }}?ids=${ids}`, {cache:'no-store'})
       .then(r=>r.ok?r.json():null).then(j=>{
         if(!j||!j.ok) return;
         j.items.forEach(it=>{
-          const td = document.querySelector(`td[data-txid="${it.id}"]`);
-          if(!td) return;
-          const pill = td.querySelector('.countdown-pill');
-          const note = td.querySelector('.countdown-expired');
-          if(it.status === 'on-proses'){
-            if(pill){
-              const next = Math.max(it.remaining,0);
-              pill.setAttribute('data-remaining', next);
-              pill.textContent = next;
-              if(next > 0){
-                pill.style.display = '';
-                if(note) note.style.display = 'none';
-              } else {
-                pill.style.display = 'none';
-                if(note) note.style.display = 'inline';
+          qsa(`[data-txid="${it.id}"]`).forEach(td=>{
+            const pill = td.querySelector('.countdown-pill');
+            const note = td.querySelector('.countdown-expired');
+            if(it.status === 'on-proses'){
+              if(pill){
+                const next = Math.max(it.remaining,0);
+                pill.setAttribute('data-remaining', next);
+                pill.textContent = next;
+                if(next > 0){
+                  pill.style.display = '';
+                  if(note) note.style.display = 'none';
+                } else {
+                  pill.style.display = 'none';
+                  if(note) note.style.display = 'inline';
+                }
               }
+            } else if(it.status === 'sukses'){
+              td.innerHTML = '<button class="btn btn-outline btn-sm btn-cancel-approved" type="button" disabled>Sudah</button> <span class="muted approved-note">Disetujui</span>';
+            } else {
+              td.innerHTML = '<span class="muted">-</span>';
             }
-          } else if(it.status === 'sukses'){
-            td.innerHTML = '<button class="btn btn-outline btn-sm btn-cancel-approved" type="button" disabled>Sudah</button> <span class="muted approved-note">Disetujui</span>';
-          } else {
-            td.innerHTML = '<span class="muted">-</span>';
-          }
+          });
         });
       }).catch(()=>{});
   }
