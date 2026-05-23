@@ -68,7 +68,13 @@
       <p class="employee-info-kicker">Informasi Pegawai</p>
       <h3>Data & Rekening</h3>
     </div>
-    <span class="employee-cycle-badge">Siklus {{ limits.siklus or '-' }}</span>
+    {% set siklus_label = {
+      'A': 'Skema gaji akhir bulan',
+      'B': 'Skema gaji tengah bulan',
+      'C': 'Skema gaji tanggal 20',
+      'D': 'Skema gaji tanggal 25'
+    } %}
+    <span class="employee-cycle-badge">{{ siklus_label.get(limits.siklus, 'Skema gaji -') }}</span>
   </div>
 
   <div class="employee-info-list">
@@ -107,11 +113,6 @@
         <span class="employee-info-value">{{ (pegawai_info['no_telp'] if pegawai_info else '') or '-' }}</span>
       </span>
     </div>
-  </div>
-
-  <div class="employee-cycle-note" aria-label="Keterangan siklus gaji">
-    <span><i class="cycle-dot cycle-dot-a" aria-hidden="true"></i><b>A</b> gajian akhir bulan</span>
-    <span><i class="cycle-dot cycle-dot-b" aria-hidden="true"></i><b>B</b> gajian tengah bulan</span>
   </div>
 </section>
 

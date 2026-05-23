@@ -165,6 +165,8 @@
   <div class="kpi-card"><small>Tidak Aktif</small><b>{{ inactive_count }}</b></div>
   <div class="kpi-card soft-blue"><small>Pegawai Siklus A</small><b>{{ cycle_a }}</b></div>
   <div class="kpi-card soft-green"><small>Pegawai Siklus B</small><b>{{ cycle_b }}</b></div>
+  <div class="kpi-card"><small>Pegawai Siklus C</small><b>{{ cycle_c }}</b></div>
+  <div class="kpi-card"><small>Pegawai Siklus D</small><b>{{ cycle_d }}</b></div>
   <div class="kpi-card"><small>Belum Tarik Gaji</small><b>{{ not_borrowed }}</b></div>
   <div class="kpi-card"><small>Jumlah Transaksi</small><b>{{ trx_count }}</b></div>
   <div class="kpi-card">
@@ -813,6 +815,8 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
           <option value="all">Semua</option>
           <option value="A">Siklus A</option>
           <option value="B">Siklus B</option>
+          <option value="C">Siklus C</option>
+          <option value="D">Siklus D</option>
         </select>
       </div>
       <div style="grid-column:1/-1;margin-top:14px;">

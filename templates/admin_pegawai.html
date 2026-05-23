@@ -7,7 +7,7 @@
   <div>
     <h1>Daftar Pegawai</h1>
     <p class="muted admin-pegawai-note">Tambah, ubah, non-aktifkan,</br>dan atur siklus gaji
-    </br><b>(A: 1-akhir bulan, B: 16-15)</b>.
+    </br><b>(A: 1-akhir bulan, B: 16-15, C: 20-21, D: 25-26)</b>.
     </p>
   </div>
 </section>
@@ -68,6 +68,7 @@
           <th style="width:11%">Jabatan</th>
           <th style="width:13%">Perusahaan</th>
           <th style="width:10%">Gaji</th>
+          <th style="width:8%">Admin Fee</th>
           <th style="width:7%">Status</th>
           <th style="width:5%">Siklus</th>
           <th style="width:6%">Aksi</th>
@@ -84,6 +85,7 @@
           <td>{{ r['jabatan'] }}</td>
           <td>{{ r['perusahaan'] }}</td>
           <td>{{ "{:,}".format(r['gaji'] or 0).replace(",", ".") }}</td>
+          <td>{{ "{:,}".format(r['admin_fee_flat'] or 15000).replace(",", ".") }}</td>
           <td>
             {% if r['status_aktif'] %}
               <span class="badge">AKTIF</span>
@@ -91,13 +93,7 @@
               <span class="badge badge-urg">NON-AKTIF</span>
             {% endif %}
           </td>
-          <td>
-            {% if sg == 'B' %}
-              <span class="badge badge-b">B</span>
-            {% else %}
-              <span class="badge badge-a">A</span>
-            {% endif %}
-          </td>
+          <td><span class="badge badge-{{ (sg or 'A')|lower }}">{{ sg or 'A' }}</span></td>
           <td>
             <button class="btn btn-outline btn-sm"
                     onclick='openEditModal({
@@ -112,6 +108,7 @@
                       rekening_ewallet:{{ r["rekening_ewallet"]|tojson }},
                       no_telp:{{ r["no_telp"]|tojson }},
                       gaji:{{ (r["gaji"] or 0)|tojson }},
+                      admin_fee_flat:{{ (r["admin_fee_flat"] or 15000)|tojson }},
                       status:{{ (r["status_aktif"] or 0)|tojson }},
                       siklus:{{ (sg or "A")|tojson }}
                     })'>Edit</button>
@@ -149,10 +146,19 @@
       </div>
       <div style="grid-column:span 2">
         <label>Siklus Gaji</label>
-        <select name="siklus_gaji" id="add_siklus">
-          <option value="B" selected>B (16–15)</option>
-          <option value="A">A (1–akhir)</option>
-        </select>
+        <div class="cycle-toggle" id="add_siklus">
+          <label><input type="radio" name="siklus_gaji" value="A"><span>A<br><small>1-akhir</small></span></label>
+          <label><input type="radio" name="siklus_gaji" value="B" checked><span>B<br><small>16-15</small></span></label>
+          <label><input type="radio" name="siklus_gaji" value="C"><span>C<br><small>20-21</small></span></label>
+          <label><input type="radio" name="siklus_gaji" value="D"><span>D<br><small>25-26</small></span></label>
+        </div>
+      </div>
+      <div style="grid-column:span 2">
+        <label>Admin Fee Flat</label>
+        <div class="cycle-toggle fee-toggle" id="add_admin_fee_flat">
+          <label><input type="radio" name="admin_fee_flat" value="15000" checked><span>15.000</span></label>
+          <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
+        </div>
       </div>
       <div class="pegawai-form-actions" style="grid-column:1/-1">
         <button type="button" class="btn btn-outline" data-close>Cancel</button>
@@ -189,10 +195,19 @@
       </div>
       <div style="grid-column:span 2">
         <label>Siklus Gaji</label>
-        <select id="m_siklus" name="siklus_gaji">
-          <option value="A">A (1–akhir)</option>
-          <option value="B">B (16–15)</option>
-        </select>
+        <div class="cycle-toggle" id="m_siklus">
+          <label><input type="radio" name="siklus_gaji" value="A"><span>A<br><small>1-akhir</small></span></label>
+          <label><input type="radio" name="siklus_gaji" value="B"><span>B<br><small>16-15</small></span></label>
+          <label><input type="radio" name="siklus_gaji" value="C"><span>C<br><small>20-21</small></span></label>
+          <label><input type="radio" name="siklus_gaji" value="D"><span>D<br><small>25-26</small></span></label>
+        </div>
+      </div>
+      <div style="grid-column:span 2">
+        <label>Admin Fee Flat</label>
+        <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat">
+          <label><input type="radio" name="admin_fee_flat" value="15000"><span>15.000</span></label>
+          <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
+        </div>
       </div>
 
     </form>
@@ -219,7 +234,13 @@
   function openAddModal(){
     const m = document.getElementById('addModal');
     const f = document.getElementById('addForm');
-    if(f){ f.reset(); document.getElementById('add_siklus').value = 'B'; }
+    if(f){
+      f.reset();
+      const defaultCycle = f.querySelector('input[name="siklus_gaji"][value="B"]');
+      if(defaultCycle) defaultCycle.checked = true;
+      const defaultFee = f.querySelector('input[name="admin_fee_flat"][value="15000"]');
+      if(defaultFee) defaultFee.checked = true;
+    }
     m.style.display = 'flex';
     syncModalLayer();
   }
@@ -239,7 +260,11 @@
     document.getElementById('m_no_telp').value    = data.no_telp || '';
     document.getElementById('m_gaji').value       = data.gaji || 0;
     document.getElementById('m_status').value     = (data.status ? '1' : '0');
-    document.getElementById('m_siklus').value     = data.siklus || 'A';
+    const selectedCycle = document.querySelector(`#m_siklus input[name="siklus_gaji"][value="${data.siklus || 'A'}"]`);
+    if(selectedCycle) selectedCycle.checked = true;
+    const feeValue = String(data.admin_fee_flat || 15000);
+    const selectedFee = document.querySelector(`#m_admin_fee_flat input[name="admin_fee_flat"][value="${feeValue}"]`);
+    if(selectedFee) selectedFee.checked = true;
 
     // set action URLs
     const updBase = "{{ url_for('web.admin_pegawai_update', pid=0) }}"; // /admin/pegawai/0/update
@@ -281,6 +306,8 @@
   .badge-urg { background:rgba(255, 196, 0, .15); border-color:rgba(255,196,0,.35); color:#ffd54d; }
   .badge-a   { background:rgba(124,92,255,.12); border-color:rgba(124,92,255,.35); }
   .badge-b   { background:rgba(34,197,94,.12);  border-color:rgba(34,197,94,.35); }
+  .badge-c   { background:rgba(14,165,233,.12); border-color:rgba(14,165,233,.35); }
+  .badge-d   { background:rgba(244,114,182,.12); border-color:rgba(244,114,182,.35); }
 
   .modal {
     position:fixed; inset:0; display:none; align-items:center; justify-content:center;
@@ -315,6 +342,44 @@
   .modal-skin input, .modal-skin select{
     background:rgba(12,16,36,.86); color:var(--text);
     border:1px solid var(--border); border-radius:12px; padding:10px 12px;
+  }
+  .cycle-toggle{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:6px;
+  }
+  .fee-toggle{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .cycle-toggle label{
+    display:block;
+    cursor:pointer;
+    color:inherit;
+  }
+  .cycle-toggle input{
+    position:absolute;
+    opacity:0;
+    pointer-events:none;
+  }
+  .cycle-toggle span{
+    display:flex;
+    min-height:48px;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:rgba(12,16,36,.64);
+    font-weight:800;
+    line-height:1.1;
+  }
+  .cycle-toggle small{
+    font-size:10px;
+    font-weight:600;
+    opacity:.82;
+  }
+  .cycle-toggle input:checked + span{
+    border-color:#7c5cff;
+    box-shadow:0 0 0 1px rgba(124,92,255,.55) inset;
+    background:rgba(124,92,255,.18);
   }
   .modal-skin label{ color:#cfe0ff; font-weight:600; }
   .pegawai-form{

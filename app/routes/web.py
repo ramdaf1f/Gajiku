@@ -21,8 +21,7 @@ def health():
         return ret
     return {
         "version": current_app.config["APP_VERSION"],
-        "admin_fee_reg": get_admin_fee_flat(),
-        "admin_fee_urg_per_day": get_admin_fee_flat(),
+        "admin_fee_flat_options": list(ADMIN_FEE_FLAT_OPTIONS),
         "db_path": current_app.config["DB_PATH"],
         "session_user": session.get("user_id"),
         "session_name": session.get("user_name"),
@@ -134,11 +133,30 @@ def rekening_label_filter(value):
 def month_key(d: date) -> str: return d.strftime("%Y-%m")
 def ymd(d: date) -> str: return d.strftime("%Y-%m-%d")
 
+SIKLUS_START_DAY = {
+    "A": 1,
+    "B": 16,
+    "C": 21,
+    "D": 26,
+}
+VALID_SIKLUS = tuple(SIKLUS_START_DAY.keys())
+ADMIN_FEE_FLAT_OPTIONS = (15000, 17000)
+
+def normalize_siklus(value: str, default: str = "A") -> str:
+    siklus = (value or default).strip().upper()
+    return siklus if siklus in VALID_SIKLUS else default
+
+def normalize_admin_fee_flat(value, default: int = 15000) -> int:
+    fee = parse_int(value, default)
+    return fee if fee in ADMIN_FEE_FLAT_OPTIONS else default
+
 def compute_limits(gaji: int, at_date: date, user_id: int):
     """
     Hitung batas talangan untuk user di tanggal tertentu.
-    - Siklus A : 1–akhir bulan
-    - Siklus B : 16–15
+    - Siklus A : mulai tanggal 1
+    - Siklus B : mulai tanggal 16
+    - Siklus C : gajian 20-21, periode mulai tanggal 21
+    - Siklus D : gajian 25-26, periode mulai tanggal 26
     - REG: sisa harian = (limit_harian * hari_ke) - total_sukses_per_periode_sampai_hari_ini
     """
     db = get_db()
@@ -151,7 +169,7 @@ def compute_limits(gaji: int, at_date: date, user_id: int):
         WHERE u.id = ?
     """, (user_id,)).fetchone()
     user_email = (row["email"] if row and row["email"] else "").strip()
-    siklus = (row["siklus_gaji"] if row and row["siklus_gaji"] else "A")
+    siklus = normalize_siklus(row["siklus_gaji"] if row and row["siklus_gaji"] else "A")
 
     # Plafon & limit harian
     plafon = math.floor(0.5 * (gaji or 0))
@@ -199,22 +217,29 @@ def compute_limits(gaji: int, at_date: date, user_id: int):
 
 def day_in_cycle(d: date, siklus: str) -> int:
     """Hitung hari ke- dalam periode berjalan sesuai siklus gaji."""
-    if (siklus or 'A') == 'A':
+    siklus = normalize_siklus(siklus)
+    start_day = SIKLUS_START_DAY[siklus]
+    if start_day == 1:
         return d.day
-    # Siklus B: periode 16..15
-    if d.day >= 16:
-        return d.day - 15  # 16->1, 17->2, ..., 31->16
-    return d.day + 16     # 1->17, 2->18, ..., 15->31
+    if d.day >= start_day:
+        return d.day - start_day + 1
+
+    prev_month = d.month - 1
+    prev_year = d.year
+    if prev_month == 0:
+        prev_month = 12
+        prev_year -= 1
+    days_in_prev_month = calendar.monthrange(prev_year, prev_month)[1]
+    return (days_in_prev_month - start_day + 1) + d.day
 
 def period_key_by_cycle(d: date, siklus: str) -> str:
     """Kunci periode (YYYY-MM) mengikuti bulan 'awal' periode."""
-    if (siklus or 'A') == 'A':
+    siklus = normalize_siklus(siklus)
+    start_day = SIKLUS_START_DAY[siklus]
+    if start_day == 1:
         return d.strftime("%Y-%m")
-    # Siklus B: periode mulai tanggal 16.
-    # Jika tgl < 16, maka periode dianggap mulai 16 bulan sebelumnya.
-    if d.day >= 16:
+    if d.day >= start_day:
         return d.strftime("%Y-%m")
-    # mundur 1 bulan:
     y = d.year; m = d.month - 1
     if m == 0: m = 12; y -= 1
     return f"{y:04d}-{m:02d}"
@@ -341,41 +366,20 @@ def set_ppn_enabled(enabled: bool) -> None:
         )
     db.commit()
 
-def get_admin_fee_flat() -> int:
-    default_fee = int(current_app.config["ADMIN_FEE"] or 0)
-    db = get_db()
-    row = db.execute(
-        "SELECT value FROM app_settings WHERE key='admin_fee_flat' LIMIT 1"
-    ).fetchone()
-    if not row:
-        return default_fee
+def get_admin_fee_flat_for_user(user_id: int) -> int:
+    default_fee = normalize_admin_fee_flat(current_app.config["ADMIN_FEE"], 15000)
     try:
-        fee = int(str(row["value"] or "").strip())
+        row = get_db().execute("""
+            SELECT p.admin_fee_flat
+            FROM users u
+            LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
+            WHERE u.id = ?
+        """, (user_id,)).fetchone()
+        if row and row["admin_fee_flat"] is not None:
+            return normalize_admin_fee_flat(row["admin_fee_flat"], default_fee)
     except Exception:
-        return default_fee
-    allowed = {default_fee, default_fee + 2000}
-    return fee if fee in allowed else default_fee
-
-def set_admin_fee_flat(value: int) -> bool:
-    default_fee = int(current_app.config["ADMIN_FEE"] or 0)
-    try:
-        fee = int(value)
-    except Exception:
-        return False
-    if fee not in {default_fee, default_fee + 2000}:
-        return False
-    db = get_db()
-    cur = db.execute(
-        "UPDATE app_settings SET value=? WHERE key='admin_fee_flat'",
-        (str(fee),),
-    )
-    if cur.rowcount == 0:
-        db.execute(
-            "INSERT INTO app_settings (key, value) VALUES (?, ?)",
-            ("admin_fee_flat", str(fee)),
-        )
-    db.commit()
-    return True
+        pass
+    return default_fee
 
 def get_runtime_force_limit() -> bool:
     db = get_db()
@@ -783,7 +787,7 @@ def tarik_gaji():
         flash("Silakan login terlebih dahulu.", "error")
         return redirect(url_for("web.login"))
 
-    admin_fee_base = get_admin_fee_flat()
+    admin_fee_base = get_admin_fee_flat_for_user(session["user_id"])
     admin_fee_per_day = admin_fee_base
     ppn_enabled = get_ppn_enabled()
     db      = get_db()
@@ -1185,6 +1189,12 @@ def admin_pegawai():
     except Exception:
         db.execute("ALTER TABLE pegawai ADD COLUMN no_telp TEXT DEFAULT ''")
         db.commit()
+    # pastikan kolom 'admin_fee_flat' ada
+    try:
+        db.execute("SELECT admin_fee_flat FROM pegawai LIMIT 1").fetchone()
+    except Exception:
+        db.execute("ALTER TABLE pegawai ADD COLUMN admin_fee_flat INTEGER DEFAULT 15000")
+        db.commit()
 
     q = (request.args.get("q") or "").strip()
     f_company = (request.args.get("company") or "").strip()
@@ -1196,6 +1206,7 @@ def admin_pegawai():
                COALESCE(no_rekening_lain,'') AS no_rekening_lain,
                COALESCE(rekening_ewallet,'') AS rekening_ewallet,
                COALESCE(no_telp,'') AS no_telp,
+               COALESCE(admin_fee_flat, 15000) AS admin_fee_flat,
                siklus_gaji,
                created_at
         FROM pegawai
@@ -1245,9 +1256,8 @@ def admin_pegawai_add():
     gaji        = parse_int(request.form.get("gaji"), 0)
     status      = 1 if request.form.get("status") == "1" else 0
     # NEW: baca & validasi siklus_gaji (default B)
-    siklus      = (request.form.get("siklus_gaji") or "B").strip().upper()
-    if siklus not in ("A", "B"):
-        siklus = "B"
+    siklus      = normalize_siklus(request.form.get("siklus_gaji"), default="B")
+    admin_fee_flat = normalize_admin_fee_flat(request.form.get("admin_fee_flat"), default=15000)
 
     if not id_pegawai or not nama or not email:
         flash("ID pegawai, nama, dan email wajib diisi.", "error")
@@ -1269,9 +1279,9 @@ def admin_pegawai_add():
         return redirect(url_for("web.admin_pegawai"))
 
     db.execute("""
-        INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus_gaji, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, datetime.now().isoformat(timespec="seconds")))
+        INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus_gaji, admin_fee_flat, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, admin_fee_flat, datetime.now().isoformat(timespec="seconds")))
     db.commit()
 
     flash("Pegawai ditambahkan.", "success")
@@ -1292,8 +1302,8 @@ def admin_pegawai_update(pid):
     no_telp    = (request.form.get("no_telp") or "").strip()
     gaji       = parse_int(request.form.get("gaji"), 0)
     status     = 1 if request.form.get("status") == "1" else 0
-    siklus     = (request.form.get("siklus_gaji") or "A").strip().upper()
-    if siklus not in ("A","B"): siklus = "A"
+    siklus     = normalize_siklus(request.form.get("siklus_gaji"), default="A")
+    admin_fee_flat = normalize_admin_fee_flat(request.form.get("admin_fee_flat"), default=15000)
 
     db = get_db()
     if not id_pegawai:
@@ -1320,11 +1330,11 @@ def admin_pegawai_update(pid):
         flash("ID pegawai/nama/email bentrok dengan data lain.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
-    # Update master pegawai (termasuk siklus_gaji)
+    # Update master pegawai (termasuk siklus_gaji dan admin fee flat)
     db.execute("""UPDATE pegawai
-                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_rekening_lain=?, rekening_ewallet=?, no_telp=?, siklus_gaji=?
+                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_rekening_lain=?, rekening_ewallet=?, no_telp=?, siklus_gaji=?, admin_fee_flat=?
                   WHERE id=?""",
-               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, pid))
+               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, admin_fee_flat, pid))
 
     # Sinkronkan status + email ke akun formal agar login ikut email terbaru
     db.execute(
@@ -1518,7 +1528,6 @@ def admin_dashboard():
     if ret:
         return ret
 
-    admin_fee_base = get_admin_fee_flat()
     db = get_db()
     enabled_products = get_enabled_products()
     ppn_enabled = get_ppn_enabled()
@@ -1552,7 +1561,7 @@ def admin_dashboard():
 
     trend_start = add_months(date(today.year, today.month, 1), -5)
     trend_start_key = trend_start.strftime("%Y-%m")
-    cache_key = f"admin_kpi:{s_first}:{s_next}:{periode_key}:{trend_start_key}"
+    cache_key = f"admin_kpi:v2:{s_first}:{s_next}:{periode_key}:{trend_start_key}"
     cached_kpi = get_cache(cache_key)
     if cached_kpi:
         (
@@ -1570,6 +1579,8 @@ def admin_dashboard():
             pending_count,
             cycle_a,
             cycle_b,
+            cycle_c,
+            cycle_d,
             inactive_count,
             chart_labels,
             chart_values,
@@ -1630,6 +1641,12 @@ def admin_dashboard():
         ).fetchone()[0]
         cycle_b = db.execute(
             "SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='B'"
+        ).fetchone()[0]
+        cycle_c = db.execute(
+            "SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='C'"
+        ).fetchone()[0]
+        cycle_d = db.execute(
+            "SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='D'"
         ).fetchone()[0]
         inactive_count = db.execute(
             "SELECT COUNT(*) FROM pegawai WHERE status_aktif=0"
@@ -1706,6 +1723,8 @@ def admin_dashboard():
                 pending_count,
                 cycle_a,
                 cycle_b,
+                cycle_c,
+                cycle_d,
                 inactive_count,
                 chart_labels,
                 chart_values,
@@ -1817,6 +1836,8 @@ def admin_dashboard():
         trx_sum=trx_sum,
         cycle_a=cycle_a,
         cycle_b=cycle_b,
+        cycle_c=cycle_c,
+        cycle_d=cycle_d,
         not_registered=max(total_pegawai - total_register, 0),
         inactive_count=inactive_count,
         pending_count=pending_count,
@@ -1824,7 +1845,6 @@ def admin_dashboard():
         recent=recent,
         pending_reg=pending_reg,
         pending_urg=pending_urg,
-        ADMIN_FEE=admin_fee_base,
         admin_fee_total=admin_fee_total,
         admin_fee_reg_total=admin_fee_reg_total,
         admin_fee_urg_total=admin_fee_urg_total,
@@ -2024,7 +2044,7 @@ def admin_export_range():
         flash("Tanggal awal tidak boleh lebih besar dari tanggal akhir.", "error")
         return redirect(url_for("web.admin_dashboard"))
 
-    if siklus not in ("A", "B", "ALL"):
+    if siklus not in (*VALID_SIKLUS, "ALL"):
         siklus = "ALL"
 
     sql = """
@@ -2045,7 +2065,7 @@ def admin_export_range():
     """
     params = [start_dt.isoformat(), end_dt.isoformat()]
 
-    if siklus in ("A", "B"):
+    if siklus in VALID_SIKLUS:
         sql += " AND COALESCE(p.siklus_gaji,'A') = ?"
         params.append(siklus)
 
@@ -2067,7 +2087,7 @@ def admin_export_range():
     data = buf.getvalue().encode("utf-8-sig")
     from flask import Response
     fname = f"export_dana_talangan_{start_dt.isoformat()}_to_{end_dt.isoformat()}"
-    if siklus in ("A", "B"):
+    if siklus in VALID_SIKLUS:
         fname += f"_siklus_{siklus}"
     fname += ".csv"
 
@@ -2089,11 +2109,6 @@ def admin_settings():
         return ret
 
     db = get_db()
-    ppn_enabled = get_ppn_enabled()
-    admin_fee_default = int(current_app.config["ADMIN_FEE"] or 0)
-    admin_fee_new = admin_fee_default + 2000
-    admin_fee_flat = get_admin_fee_flat()
-
     # coba ambil admin dari session id/email; kalau tidak ada, ambil admin pertama
     adm = None
     if session.get("admin_id"):
@@ -2111,9 +2126,6 @@ def admin_settings():
         return {
             "admin": adm,
             "ppn_enabled": get_ppn_enabled(),
-            "admin_fee_flat": get_admin_fee_flat(),
-            "admin_fee_default": admin_fee_default,
-            "admin_fee_new": admin_fee_new,
             "is_owner": bool(session.get("is_owner")),
             "runtime_force_limit": get_runtime_force_limit(),
         }
@@ -2124,14 +2136,6 @@ def admin_settings():
             enabled = request.form.get("ppn_enabled") == "1"
             set_ppn_enabled(enabled)
             flash("Pengaturan PPN diperbarui.", "success")
-            return redirect(url_for("web.admin_settings"))
-
-        if form_type == "admin_fee":
-            fee_raw = parse_int(request.form.get("admin_fee_flat"), admin_fee_default)
-            if not set_admin_fee_flat(fee_raw):
-                flash("Pilihan admin fee flat tidak valid.", "error")
-                return render_template("admin_settings.html", **settings_context())
-            flash("Pengaturan admin fee flat diperbarui.", "success")
             return redirect(url_for("web.admin_settings"))
 
         if form_type == "runtime_force_limit":

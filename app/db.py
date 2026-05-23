@@ -81,6 +81,7 @@ def init_db():
             no_rekening_lain TEXT DEFAULT '',
             rekening_ewallet TEXT DEFAULT '',
             no_telp TEXT DEFAULT '',
+            admin_fee_flat INTEGER DEFAULT 15000,
             created_at TEXT NOT NULL
         );
 
@@ -193,6 +194,13 @@ def init_db():
         db.execute("ALTER TABLE pegawai ADD COLUMN no_telp TEXT DEFAULT ''")
         db.commit()
         print("[DB] kolom no_telp ditambahkan.")
+    except sqlite3.OperationalError:
+        pass
+    # === MIGRASI: tambahkan kolom admin_fee_flat bila belum ada ===
+    try:
+        db.execute("ALTER TABLE pegawai ADD COLUMN admin_fee_flat INTEGER DEFAULT 15000")
+        db.commit()
+        print("[DB] kolom admin_fee_flat ditambahkan.")
     except sqlite3.OperationalError:
         pass
     # === MIGRASI: tambahkan kolom avatar_path bila belum ada ===

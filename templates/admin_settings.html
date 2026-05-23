@@ -26,33 +26,6 @@
 </section>
 
 <section class="card">
-  <h3>Admin Fee Flat</h3>
-  <p class="muted" style="margin-top:-4px">
-    Pilih nilai admin fee flat untuk pengajuan REG dan dasar perhitungan fee URG.
-  </p>
-
-  <form method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="form_type" value="admin_fee">
-
-    <label>Admin Fee</label>
-    <select name="admin_fee_flat" required>
-      <option value="{{ admin_fee_default }}" {% if admin_fee_flat == admin_fee_default %}selected{% endif %}>
-        Lama - {{ admin_fee_default | rupiah }}
-      </option>
-      <option value="{{ admin_fee_new }}" {% if admin_fee_flat == admin_fee_new %}selected{% endif %}>
-        Baru - {{ admin_fee_new | rupiah }}
-      </option>
-    </select>
-
-    <div class="form-actions">
-      <button class="btn" type="submit">Simpan</button>
-      <a class="btn btn-outline" href="{{ url_for('web.admin_dashboard') }}">Kembali</a>
-    </div>
-  </form>
-</section>
-
-<section class="card">
   <h3>Ubah Password (Admin)</h3>
   <p class="muted" style="margin-top:-4px">
     Login saat ini: <b>{{ admin.email or admin.name }}</b>
