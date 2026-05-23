@@ -50,7 +50,7 @@ def parse_int(raw, default=0):
     except Exception:
         return default
 
-EMPLOYEE_ID_MAX_LEN = 15
+EMPLOYEE_ID_MAX_LEN = 16
 EMPLOYEE_ID_RE = re.compile(rf"^[A-Za-z0-9]{{1,{EMPLOYEE_ID_MAX_LEN}}}$")
 EWALLET_RE = re.compile(r"^[A-Za-z0-9 ]*$")
 REKENING_LABELS = {
