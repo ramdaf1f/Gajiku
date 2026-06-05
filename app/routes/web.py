@@ -141,6 +141,7 @@ SIKLUS_START_DAY = {
 }
 VALID_SIKLUS = tuple(SIKLUS_START_DAY.keys())
 ADMIN_FEE_FLAT_OPTIONS = (15000, 17000)
+REG_WITHDRAWAL_MAX = 1_000_000
 
 def normalize_siklus(value: str, default: str = "A") -> str:
     siklus = (value or default).strip().upper()
@@ -818,6 +819,7 @@ def tarik_gaji():
             limits=form_limits,
             ADMIN_FEE=admin_fee_base,
             ADMIN_FEE_PER_DAY=admin_fee_per_day,
+            REG_WITHDRAWAL_MAX=REG_WITHDRAWAL_MAX,
             ppn_enabled=ppn_enabled,
             enabled_products=enabled_products,
             selected_product=product or selected_product,
@@ -907,6 +909,9 @@ def tarik_gaji():
         # --- Validasi & fee ---
         if produk == "reg":
             # untuk REG pakai saldo harian (sudah memperhitungkan siklus A/B)
+            if nominal > REG_WITHDRAWAL_MAX:
+                flash(f"Nominal REG maksimal {rupiah_format(REG_WITHDRAWAL_MAX)} per pengajuan.", "error")
+                return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)
             if nominal > lim_day["saldo"]:
                 flash(f"Permintaan melebihi limit plafon harian. Sisa hari ini: {rupiah_format(lim_day['saldo'])}.", "error")
                 return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)

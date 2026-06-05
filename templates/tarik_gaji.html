@@ -8,6 +8,7 @@
 {% set ppn_enabled = ppn_enabled if ppn_enabled is defined else true %}
 {% set rekening_options = rekening_options if rekening_options is defined else [] %}
 {% set selected_rekening_key = selected_rekening_key if selected_rekening_key is defined else (rekening_options[0]['key'] if rekening_options else '') %}
+{% set REG_WITHDRAWAL_MAX = REG_WITHDRAWAL_MAX if REG_WITHDRAWAL_MAX is defined else 1000000 %}
 
 <section class="card tarik-gaji-card glass">
   <h2>Tarik Gaji</h2>
@@ -60,6 +61,9 @@
 
     <label>Nominal (Rp)</label>
     <input type="text" name="nominal" id="nominal" inputmode="numeric" oninput="recalcFee()" required>
+    <div class="reg-limit-notice" id="regLimitNotice">
+      Maksimum nominal Tarik Gaji REG adalah <b>{{ REG_WITHDRAWAL_MAX | rupiah }}</b> per pengajuan.
+    </div>
 
     <div class="muted" id="feePreview" style="margin-top:6px;"></div>
     <div class="muted" id="taxHint" style="margin-top:4px;font-size:12.5px;">
@@ -111,6 +115,7 @@
   const HARI_KE_TODAY = {{ limits.hari_ke|int }};
   const SALDO_PLAFON  = Math.max({{ limits.plafon|int }} - TOTAL_SUKSES, 0);
   const ADMIN_FEE_REG = {{ ADMIN_FEE|int }};
+  const REG_WITHDRAWAL_MAX = {{ REG_WITHDRAWAL_MAX|int }};
   const PPN_ENABLED = {{ 'true' if ppn_enabled else 'false' }};
   const PPN_RATE = PPN_ENABLED ? 0.11 : 0;
 
@@ -179,12 +184,23 @@
           : `Admin fee (REG): Rp ${idFormat(feeTaxed.total)} (tanpa PPN)`;
       const hint = document.getElementById('urgHint'); if(hint) hint.style.display = 'none';
     }
+
+    const regNotice = document.getElementById('regLimitNotice');
+    if(regNotice){
+      regNotice.style.display = produk === 'reg' ? 'block' : 'none';
+      regNotice.classList.toggle('reg-limit-notice--error', produk === 'reg' && nominal > REG_WITHDRAWAL_MAX);
+    }
   }
 
   function handleSubmitTarikGaji(form){
     // validasi ringan
     const nominal = sanitizeInt(document.getElementById('nominal').value||0);
+    const produk = document.getElementById('produk')?.value || 'reg';
     if(nominal <= 0){ alert('Nominal wajib > 0'); return false; }
+    if(produk === 'reg' && nominal > REG_WITHDRAWAL_MAX){
+      alert(`Nominal REG maksimal Rp ${idFormat(REG_WITHDRAWAL_MAX)} per pengajuan.`);
+      return false;
+    }
     if(!form.querySelector('input[name="rekening_tujuan_key"]:checked')){
       alert('Pilih rekening tujuan');
       return false;
