@@ -273,8 +273,8 @@ def init_db():
 
 def ensure_db():
     db_path = current_app.config["DB_PATH"]
-    if not os.path.exists(db_path):
-        open(db_path, "a").close()
+    db_dir = os.path.dirname(os.path.abspath(db_path))
+    os.makedirs(db_dir, exist_ok=True)
     init_db()
 
 
