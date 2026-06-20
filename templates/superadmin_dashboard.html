@@ -21,7 +21,7 @@
         <input id="avatar-file-admin" name="avatar" type="file" accept="image/*" style="display:none">
       </form>
       <div>
-        <h2>Dashboard Admin</h2>
+        <h2>Dashboard SuperAdmin</h2>
         <p class="muted" id="admin-clock">-</p>
       </div>
     </div>
@@ -35,6 +35,16 @@
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_pegawai') }}">Kelola Pegawai</a>
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_riwayat') }}">Riwayat Transaksi</a>
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_settings') }}">Setup Basic</a>
+      <button class="btn btn-outline dropdown-link" type="button" id="open-product-modal">Product</button>
+      <form method="post" action="{{ url_for('web.admin_reset_data') }}" onsubmit="return confirm('Hapus data operasional (users & transaksi)?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline dropdown-link" type="submit">Reset Data</button>
+      </form>
+      <form method="post" action="{{ url_for('web.admin_reset_all') }}" onsubmit="return confirm('Hapus data operasional dan master pegawai?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline dropdown-link" type="submit">Reset Semua</button>
+      </form>
+      <button class="btn btn-outline dropdown-link" type="button" id="open-export-modal">Export CSV</button>
     </div>
   </details>
   <form method="post" action="{{ url_for('web.admin_logout') }}">
@@ -159,7 +169,20 @@
   <div class="kpi-card"><small>Pegawai Siklus D</small><b>{{ cycle_d }}</b></div>
   <div class="kpi-card"><small>Belum Tarik Gaji</small><b>{{ not_borrowed }}</b></div>
   <div class="kpi-card"><small>Jumlah Transaksi</small><b>{{ trx_count }}</b></div>
-
+  <div class="kpi-card">
+    <small>Queue Status ({{ queue_stats.mode }})</small>
+    <b>{{ queue_stats.count if queue_stats.count is not none else '-' }}</b>
+    <div class="kpi-sub">Oldest: {{ (queue_stats.oldest_age_sec or 0) | int }}s</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Admin Fee</div>
+    <div class="kpi-value">{{ ((admin_fee_total or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</div>
+    <div class="kpi-sub">
+      REG: {{ (admin_fee_reg_total or 0) }}
+      &nbsp;•&nbsp;
+      URG: {{ (admin_fee_urg_total or 0) }}
+    </div>    
+  </div>
 </div>
 </section>
 
@@ -189,6 +212,7 @@
           <th>Nama</th>
           <th>Project</th>
           <th>Nominal</th>
+          <th>Admin</th>
           <th>Rekening Tujuan</th>
           <th>No Telp</th>
           <th style="width:220px;">Aksi</th>
@@ -202,6 +226,7 @@
           <td>{{ t['nama'] }}</td>
           <td>{{ t['perusahaan'] }}</td>
           <td>{{ "{:,}".format(t['nominal']).replace(",", ".") }}</td>
+          <td>{{ "{:,}".format(t['admin_fee']).replace(",", ".") }}</td>
           <td>{{ t['no_rekening'] or '-' }}</td>
           <td>{{ t['no_telp'] or '-' }}</td>
           <td>
@@ -240,6 +265,7 @@
             <th>Nama</th>
             <th>Project</th>
             <th>Nominal</th>
+            <th>Admin</th>
             <th>Rekening Tujuan</th>
             <th>No Telp</th>
             <th style="width:220px;">Aksi</th>
@@ -253,6 +279,7 @@
             <td>{{ t['nama'] }}</td>
             <td>{{ t['perusahaan'] }}</td>
             <td>{{ "{:,}".format(t['nominal']).replace(",", ".") }}</td>
+            <td>{{ "{:,}".format(t['admin_fee']).replace(",", ".") }}</td>
             <td>{{ t['no_rekening'] or '-' }}</td>
             <td>{{ t['no_telp'] or '-' }}</td>
             <td>
@@ -323,6 +350,72 @@
   </div>
 </section>
 
+<section class="card glass admin-fee-recap-card">
+  <button class="collapse-toggle secret-collapse-toggle" type="button" data-target="admin-fee-recap-panel" data-secret-toggle="true" aria-controls="admin-fee-recap-panel" aria-expanded="false">
+    <span>Rekapitulasi Admin Fee</span>
+    <span class="collapse-icon">+</span>
+  </button>
+  <div id="admin-fee-recap-panel" class="collapse-panel admin-fee-recap-panel">
+    <form method="get" class="admin-fee-filter">
+      <div>
+        <label for="admin-fee-month">Bulan</label>
+        <input id="admin-fee-month" type="month" name="admin_fee_month" value="{{ admin_fee_month }}">
+      </div>
+      <button class="btn btn-sm" type="submit">Apply</button>
+      {% if admin_fee_month %}
+        <a class="btn btn-outline btn-sm" href="{{ url_for('web.admin_dashboard') }}">All</a>
+      {% endif %}
+    </form>
+
+    <div class="admin-fee-summary">
+      <div>
+        <span class="muted">Periode</span>
+        <b>{{ admin_fee_recap_label }}</b>
+      </div>
+      <div>
+        <span class="muted">Transaksi</span>
+        <b>{{ admin_fee_recap_count }}</b>
+      </div>
+      <div>
+        <span class="muted">Total Admin Fee</span>
+        <b>{{ (admin_fee_recap_total | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</b>
+      </div>
+    </div>
+
+    <div class="table-wrap admin-fee-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Produk</th>
+            <th>Transaksi</th>
+            <th>Total Admin Fee</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if not admin_fee_recap_rows %}
+            <tr><td colspan="3" class="muted">Belum ada data.</td></tr>
+          {% else %}
+            {% for r in admin_fee_recap_rows %}
+              <tr>
+                <td>
+                  {% if r['product'] == 'urg' %}
+                    <span class="badge badge-urg">URG</span>
+                  {% elif r['product'] == 'reg' %}
+                    <span class="badge badge-reg">REG</span>
+                  {% else %}
+                    {{ (r['product'] or '-') | upper }}
+                  {% endif %}
+                </td>
+                <td>{{ r['trx_count'] }}</td>
+                <td>{{ (r['admin_fee_total'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
+              </tr>
+            {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
 
 <style>
   .collapse-toggle{
@@ -335,6 +428,29 @@
   .collapse-icon{
     width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center;
     font-size:20px; line-height:1;
+  }
+  .admin-fee-recap-card{ padding:10px 14px; }
+  .admin-fee-recap-panel{ margin-top:10px; }
+  .admin-fee-filter{
+    display:grid; grid-template-columns:minmax(160px, 1fr) auto auto;
+    gap:8px; align-items:end; margin-bottom:10px;
+  }
+  .admin-fee-filter label{ margin-top:0; }
+  .admin-fee-summary{
+    display:grid; grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:8px; margin-bottom:10px;
+  }
+  .admin-fee-summary > div{
+    border:1px solid var(--border); border-radius:10px;
+    padding:8px 10px; background:rgba(255,255,255,.04);
+  }
+  .admin-fee-summary span{ display:block; font-size:12px; margin-bottom:2px; }
+  .admin-fee-summary b{ font-size:16px; }
+  .admin-fee-table table th,
+  .admin-fee-table table td{ padding:8px; }
+  @media (max-width:640px){
+    .admin-fee-filter,
+    .admin-fee-summary{ grid-template-columns:1fr; }
   }
 </style>
 
@@ -409,7 +525,12 @@ function renderTrendChart(){
 document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) => {
   const panel = document.getElementById(toggleBtn.getAttribute('data-target'));
   if(!panel) return;
-  toggleBtn.addEventListener('click', () => {
+  toggleBtn.addEventListener('click', (e) => {
+    const secretToggle = toggleBtn.getAttribute('data-secret-toggle') === 'true';
+    if(secretToggle){
+      const clickedIcon = e.target.closest('.collapse-icon');
+      if(!clickedIcon || !e.ctrlKey || !e.shiftKey) return;
+    }
     const open = panel.classList.toggle('active');
     toggleBtn.setAttribute('aria-expanded', String(open));
     const icon = toggleBtn.querySelector('.collapse-icon');
@@ -570,6 +691,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
           <th>Nama</th>
           <th>Produk</th>
           <th>Nominal</th>
+          <th>Admin Fee</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -587,6 +709,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
             {% endif %}
           </td>
           <td>{{ (r['nominal'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
+          <td>{{ (r['admin_fee'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
           <td class="{% if r['status']=='sukses' %}ok{% elif r['status']=='on-proses' %}warn{% else %}bad{% endif %}">
             {% if r['status'] == 'dibatalkan' %}
               cancel
@@ -640,6 +763,137 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
 })();
 </script>
 
+<!-- Modal Product -->
+<div id="product-modal" class="modal-overlay" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <h3 id="product-modal-title" style="margin:0">Product</h3>
+      <button class="btn btn-outline btn-sm" type="button" id="close-product-modal" aria-label="Tutup">x</button>
+    </div>
+    <form method="post" action="{{ url_for('web.admin_products') }}" id="product-form" style="margin-top:12px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="product-check">
+        <input type="checkbox" name="products" value="reg" {% if 'reg' in enabled_products %}checked{% endif %}>
+        Dana Talangan Reg
+      </label>
+      <label class="product-check">
+        <input type="checkbox" name="products" value="urg" {% if 'urg' in enabled_products %}checked{% endif %}>
+        Dana Talangan Urg
+      </label>
+      <div class="modal-divider" role="presentation"></div>
+      <label class="product-check">
+        <input type="hidden" name="ppn_enabled" value="0">
+        <input type="checkbox" name="ppn_enabled" value="1" {% if ppn_enabled %}checked{% endif %}>
+        PPN 11% untuk Admin Fee
+      </label>
+      <div style="margin-top:14px;">
+        <button class="btn btn-outline" type="submit" style="width:100%;">Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Export Custom -->
+<div id="export-modal" class="modal-overlay" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <h3 id="export-modal-title" style="margin:0">Export CSV Custom</h3>
+      <button class="btn btn-outline btn-sm" type="button" id="close-export-modal" aria-label="Tutup">x</button>
+    </div>
+    <form method="get" action="{{ url_for('web.admin_export_range') }}" class="grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+      <div>
+        <label>Dari Tanggal</label>
+        <input type="date" name="start" required>
+      </div>
+      <div>
+        <label>Sampai Tanggal</label>
+        <input type="date" name="end" required>
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Siklus Pegawai</label>
+        <select name="siklus">
+          <option value="all">Semua</option>
+          <option value="A">Siklus A</option>
+          <option value="B">Siklus B</option>
+          <option value="C">Siklus C</option>
+          <option value="D">Siklus D</option>
+        </select>
+      </div>
+      <div style="grid-column:1/-1;margin-top:14px;">
+        <button class="btn btn-outline" type="submit" style="width:100%;">Export CSV</button>
+      </div>
+    </form>    
+  </div>
+</div>
+
+<style>
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.55);
+    display:none; align-items:center; justify-content:center; padding:16px; z-index:9999;
+  }
+  .modal-overlay.active{ display:flex; }
+  .modal-card{
+    width:100%; max-width:520px; background:#0f172a; border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; padding:16px; box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .product-check{
+    display:flex; align-items:center; gap:10px; margin:10px 0;
+    font-weight:600;
+  }
+  .product-check input{ width:auto; }
+  .modal-divider{
+    height:1px; background:rgba(255,255,255,.14); margin:12px 0;
+  }
+  body.theme-new .modal-card{
+    background:linear-gradient(135deg, #9edfff, #dbf3ff);
+    border-color:#bfe5ff;
+    color:#0f1b2d;
+  }
+  body.theme-new .modal-divider{
+    background:rgba(15,27,45,.18);
+  }
+  @media (max-width:640px){
+    .modal-card{ max-width:100%; }
+  }
+</style>
+
+<script>
+  (function(){
+    const modal = document.getElementById('export-modal');
+    const openBtn = document.getElementById('open-export-modal');
+    const closeBtn = document.getElementById('close-export-modal');
+    if(!modal || !openBtn || !closeBtn) return;
+    function open(){ modal.classList.add('active'); modal.setAttribute('aria-hidden','false'); }
+    function close(){ modal.classList.remove('active'); modal.setAttribute('aria-hidden','true'); }
+    openBtn.addEventListener('click', open);
+    closeBtn.addEventListener('click', close);
+    modal.addEventListener('click', (e)=>{ if(e.target === modal) close(); });
+    document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') close(); });
+  })();
+</script>
+
+<script>
+  (function(){
+    const modal = document.getElementById('product-modal');
+    const openBtn = document.getElementById('open-product-modal');
+    const closeBtn = document.getElementById('close-product-modal');
+    const form = document.getElementById('product-form');
+    if(!modal || !openBtn || !closeBtn || !form) return;
+    function open(){ modal.classList.add('active'); modal.setAttribute('aria-hidden','false'); }
+    function close(){ modal.classList.remove('active'); modal.setAttribute('aria-hidden','true'); }
+    openBtn.addEventListener('click', open);
+    closeBtn.addEventListener('click', close);
+    modal.addEventListener('click', (e)=>{ if(e.target === modal) close(); });
+    document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') close(); });
+    form.addEventListener('submit', (e)=> {
+      const checked = form.querySelectorAll('input[name=\"products\"]:checked');
+      if(!checked.length){
+        e.preventDefault();
+        alert('Minimal satu produk harus aktif.');
+      }
+    });
+  })();
+</script>
 
 <footer class="muted" style="margin-top:16px;text-align:left">
   This application was created in 2025

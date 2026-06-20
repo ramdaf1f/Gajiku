@@ -30,7 +30,7 @@
 
 <!-- Filter -->
 <section class="card glass" style="margin-bottom:12px">
-  <form method="get" action="{{ url_for('web.admin_pegawai') }}"
+  <form method="get" action="{{ url_for('web.superadmin_pegawai') }}"
         style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
     <div>
       <label>Cari</label>
@@ -125,7 +125,7 @@
 <div id="addModal" class="modal" style="display:none">
   <div class="modal-content modal-skin">
     <h3 style="margin-top:0">Tambah Pegawai</h3>
-    <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.admin_pegawai_add') }}">
+    <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.superadmin_pegawai_add') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div style="grid-column:span 3"><label>ID Pegawai</label><input name="id_pegawai" maxlength="16" pattern="[A-Za-z0-9]{1,16}" placeholder="maks. 16 karakter" autocomplete="off" required></div>
       <div style="grid-column:span 3"><label>Nama</label><input name="nama" required></div>
@@ -267,8 +267,8 @@
     if(selectedFee) selectedFee.checked = true;
 
     // set action URLs
-    const updBase = "{{ url_for('web.admin_pegawai_update', pid=0) }}"; // /admin/pegawai/0/update
-    const delBase = "{{ url_for('web.admin_pegawai_delete', pid=0) }}"; // /admin/pegawai/0/delete
+    const updBase = "{{ url_for('web.superadmin_pegawai_update', pid=0) }}"; // /admin/pegawai/0/update
+    const delBase = "{{ url_for('web.superadmin_pegawai_delete', pid=0) }}"; // /admin/pegawai/0/delete
     document.getElementById('editForm').action   = updBase.replace('/0/update', `/${data.id}/update`);
     document.getElementById('deleteForm').action = delBase.replace('/0/delete', `/${data.id}/delete`);
 

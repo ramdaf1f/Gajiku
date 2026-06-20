@@ -220,16 +220,59 @@ def init_db():
     # seed admin default jika kosong
     admin = db.execute("SELECT id FROM admins LIMIT 1").fetchone()
     if not admin:
+        # Akun Superadmin (menggantikan admin default)
         db.execute(
             "INSERT INTO admins (name, email, password_hash, created_at) VALUES (?,?,?,?)",
             (
-                "Administrator",
+                "Superadmin Utama",
+                "superadmin@example.com",
+                generate_password_hash("superadmin123"),
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        # Akun Admin Biasa
+        db.execute(
+            "INSERT INTO admins (name, email, password_hash, created_at) VALUES (?,?,?,?)",
+            (
+                "Admin Biasa",
                 "admin@example.com",
                 generate_password_hash("admin123"),
                 datetime.now().isoformat(timespec="seconds"),
             ),
         )
         db.commit()
+
+    # seed pegawai dan user_accounts default jika kosong
+    pegawai_user = db.execute("SELECT id FROM pegawai LIMIT 1").fetchone()
+    if not pegawai_user:
+        # Buat entri di tabel 'pegawai'
+        db.execute(
+            "INSERT INTO pegawai (nama, email, jabatan, gaji, status_aktif, created_at) VALUES (?,?,?,?,?,?)",
+            (
+                "Budi Santoso",
+                "user@example.com",
+                "Karyawan",
+                5000000,
+                1, # Aktif
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        pegawai_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Buat entri di tabel 'user_accounts' yang terhubung ke pegawai
+        db.execute(
+            "INSERT INTO user_accounts (pegawai_id, name, email, password_hash, status_aktif, created_at) VALUES (?,?,?,?,?,?)",
+            (
+                pegawai_id,
+                "Budi Santoso",
+                "user@example.com",
+                generate_password_hash("user123"),
+                1, # Aktif
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        db.commit()
+
 
     # seed default product visibility (reg, urg)
     has_setting = db.execute(

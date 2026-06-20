@@ -30,16 +30,18 @@
   </div>
 </header>
 
-<main class="container">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="flash">
-        {% for cat, msg in messages %}
-          <div class="alert {{ cat }}">{{ msg }}</div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+<main class="{% if 'login-page' in body_class or 'register-page' in body_class %}auth-main{% else %}container{% endif %}">
+  {% if 'login-page' not in body_class and 'register-page' not in body_class %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash">
+          {% for cat, msg in messages %}
+            <div class="alert {{ cat }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+  {% endif %}
 
   {% block content %}{% endblock %}
 </main>

@@ -271,6 +271,11 @@ def require_admin():
     if not session.get("is_admin"):
         flash("Anda harus login sebagai admin.", "error")
         return redirect(url_for("web.login"))
+    
+def require_superadmin():
+    if not session.get("is_superadmin"):
+        flash("Hanya Superadmin yang memiliki akses ke halaman ini.", "error")
+        return redirect(url_for("web.login"))
 
 def current_sim_date():
     try:
@@ -424,18 +429,19 @@ def login():
         password = request.form.get("password") or ""
         db = get_db()
 
+        # --- 1. Login Superadmin (Sebelumnya Owner) ---
         owner_username = str(current_app.config.get("OWNER_USERNAME") or "").strip().lower()
         owner_password = str(current_app.config.get("OWNER_PASSWORD") or "")
         if owner_username and owner_password and email == owner_username and password == owner_password:
             session.clear()
-            session["is_admin"] = True
-            session["is_owner"] = True
+            session["is_admin"] = False       # Admin biasa dimatikan
+            session["is_superadmin"] = True  # Menggantikan peran Owner lama
             session["admin_id"] = None
-            session["admin_name"] = current_app.config["ADMIN_USERNAME"]
-            session["admin_email"] = current_app.config["ADMIN_EMAIL"]
-            return redirect(url_for("web.admin_dashboard"))
+            session["admin_name"] = "Superadmin"
+            session["admin_email"] = owner_username
+            return redirect(url_for("web.superadmin_dashboard")) # Diarahkan ke dashboard superadmin
 
-        # --- Admin login (prioritas) ---
+        # --- 2. Login Admin Biasa dari Database ---
         adm = db.execute(
             "SELECT id, name, email, password_hash FROM admins WHERE LOWER(email)=? OR LOWER(name)=?",
             (email, email),
@@ -443,12 +449,14 @@ def login():
         if adm and check_password_hash(adm["password_hash"], password):
             session.clear()
             session["is_admin"] = True
+            session["is_superadmin"] = False
             session["admin_id"] = adm["id"]
             session["admin_name"] = adm["name"]
             session["admin_email"] = adm["email"]
             flash("Login admin berhasil.", "success")
-            return redirect(url_for("web.admin_dashboard"))
+            return redirect(url_for("web.admin_dashboard")) # Diarahkan ke dashboard admin biasa
 
+        # --- 3. Login Admin Biasa dari File Konfigurasi (ENV) ---
         valid_ids = {
             str(current_app.config["ADMIN_USERNAME"]).strip().lower(),
             str(current_app.config["ADMIN_EMAIL"]).strip().lower(),
@@ -456,11 +464,14 @@ def login():
         if email in valid_ids and password == current_app.config["ADMIN_PASSWORD"]:
             session.clear()
             session["is_admin"] = True
+            session["is_superadmin"] = False
             session["admin_id"] = None
             session["admin_name"] = current_app.config["ADMIN_USERNAME"]
             session["admin_email"] = current_app.config["ADMIN_EMAIL"]
             flash("Login admin berhasil (ENV).", "success")
             return redirect(url_for("web.admin_dashboard"))
+
+        # ... (Sisa kode ke bawah untuk login pegawai/user dibiarkan tetap sama)
 
         today = date.today()
         try:
@@ -1144,8 +1155,8 @@ def admin_logout():
     return redirect(url_for("web.login"))
 
 # --- Admin: Pegawai CRUD ---
-@bp.route("/admin/pegawai", methods=["GET"], endpoint="admin_pegawai")
-def admin_pegawai():
+@bp.route("/admin/pegawai", methods=["GET"], endpoint="superadmin_pegawai")
+def superadmin_pegawai():
     ret = require_admin()
     if ret: return ret
     db = get_db()
@@ -1240,12 +1251,12 @@ def admin_pegawai():
     ]
     total_len = db.execute("SELECT COUNT(*) FROM pegawai").fetchone()[0]
 
-    return render_template("admin_pegawai.html",
+    return render_template("superadmin_pegawai.html",
                            rows=rows, q=q, companies=companies, f_company=f_company, total=total_len)
 
 
-@bp.route("/admin/pegawai/add", methods=["POST"], endpoint="admin_pegawai_add")
-def admin_pegawai_add():
+@bp.route("/admin/pegawai/add", methods=["POST"], endpoint="superadmin_pegawai_add")
+def superadmin_pegawai_add():
     ret = require_admin()
     if ret: return ret
 
@@ -1266,13 +1277,13 @@ def admin_pegawai_add():
 
     if not id_pegawai or not nama or not email:
         flash("ID pegawai, nama, dan email wajib diisi.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
     if not employee_id_is_valid(id_pegawai):
         flash(f"ID pegawai maksimal {EMPLOYEE_ID_MAX_LEN} karakter alfanumerik.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
     if not ewallet_is_valid(rekening_ewallet):
         flash("Rekening e-wallet hanya boleh berisi huruf, angka, dan spasi.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
 
     db = get_db()
     exists = db.execute(
@@ -1281,7 +1292,7 @@ def admin_pegawai_add():
     ).fetchone()
     if exists:
         flash("ID pegawai, nama, atau email sudah terdaftar.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
 
     db.execute("""
         INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus_gaji, admin_fee_flat, created_at)
@@ -1290,10 +1301,10 @@ def admin_pegawai_add():
     db.commit()
 
     flash("Pegawai ditambahkan.", "success")
-    return redirect(url_for("web.admin_pegawai"))
+    return redirect(url_for("web.superadmin_pegawai"))
 
-@bp.route("/admin/pegawai/<int:pid>/update", methods=["POST"], endpoint="admin_pegawai_update")
-def admin_pegawai_update(pid):
+@bp.route("/admin/pegawai/<int:pid>/update", methods=["POST"], endpoint="superadmin_pegawai_update")
+def superadmin_pegawai_update(pid):
     ret = require_admin()
     if ret: return ret
     id_pegawai = normalize_employee_id(request.form.get("id_pegawai"))
@@ -1313,13 +1324,13 @@ def admin_pegawai_update(pid):
     db = get_db()
     if not id_pegawai:
         flash("ID pegawai wajib diisi.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
     if not employee_id_is_valid(id_pegawai):
         flash(f"ID pegawai maksimal {EMPLOYEE_ID_MAX_LEN} karakter alfanumerik.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
     if not ewallet_is_valid(rekening_ewallet):
         flash("Rekening e-wallet hanya boleh berisi huruf, angka, dan spasi.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
     row = db.execute("SELECT email FROM pegawai WHERE id=?", (pid,)).fetchone()
     old_email = (row["email"] or "").strip().lower() if row else ""
     # Cek bentrok nama/email dengan record lain
@@ -1333,7 +1344,7 @@ def admin_pegawai_update(pid):
     exists = db.execute(exists_sql, exists_params).fetchone()
     if exists:
         flash("ID pegawai/nama/email bentrok dengan data lain.", "error")
-        return redirect(url_for("web.admin_pegawai"))
+        return redirect(url_for("web.superadmin_pegawai"))
 
     # Update master pegawai (termasuk siklus_gaji dan admin fee flat)
     db.execute("""UPDATE pegawai
@@ -1352,10 +1363,10 @@ def admin_pegawai_update(pid):
 
     db.commit()
     flash("Data pegawai diperbarui dan disinkron ke akun formal.", "success")
-    return redirect(url_for("web.admin_pegawai"))
+    return redirect(url_for("web.superadmin_pegawai"))
 
 @bp.route("/admin/pegawai/<int:pid>/delete", methods=["POST"])
-def admin_pegawai_delete(pid: int):
+def superadmin_pegawai_delete(pid: int):
     # Guard admin (versi fungsional, jangan pakai decorator)
     ret = require_admin()
     if ret:
@@ -1372,7 +1383,7 @@ def admin_pegawai_delete(pid: int):
         row = cur.fetchone()
         if not row:
             flash("Pegawai tidak ditemukan.", "error")
-            return redirect(url_for("web.admin_pegawai"))
+            return redirect(url_for("web.superadmin_pegawai"))
 
         # ---- 1) Arsipkan snapshot pegawai (aman, tidak ganggu skema) ----
         db.execute("""
@@ -1442,7 +1453,7 @@ def admin_pegawai_delete(pid: int):
         db.rollback()
         flash(f"Gagal hapus permanen: {e}", "error")
 
-    return redirect(url_for("web.admin_pegawai"))
+    return redirect(url_for("web.superadmin_pegawai"))
 
 
 # =========================================================
@@ -1527,7 +1538,7 @@ def riwayat_view():
 # =========================================================
 # ================ ADMIN DASHBOARD (REKAP) ================
 # =========================================================
-@bp.route("/admin/dashboard")
+@bp.route("/superadmin/dashboard")
 def admin_dashboard():
     ret = require_admin()
     if ret:
@@ -1830,8 +1841,10 @@ def admin_dashboard():
     except Exception:
         admin_avatar_url = None
 
+    dashboard_template = "superadmin_dashboard.html" if session.get("is_owner") else "admin_dashboard.html"
+
     return render_template(
-        "admin_dashboard.html",
+        dashboard_template,
         mk=mk,
         total_pegawai=total_pegawai,
         total_register=total_register,
@@ -1874,7 +1887,7 @@ def admin_dashboard():
 # ================= ADMIN RIWAYAT TRANSAKSI ===============
 # =========================================================
 @bp.get("/admin/riwayat")
-def admin_riwayat():
+def superadmin_riwayat():
     ret = require_admin()
     if ret:
         return ret
@@ -1949,7 +1962,7 @@ def admin_riwayat():
     total_admin = sum(int(r["admin_fee"] or 0) for r in rows if r["status"] == "sukses")
 
     return render_template(
-        "admin_riwayat.html",
+        "superadmin_riwayat.html",
         rows=rows,
         q=q,
         status=status,
@@ -2102,13 +2115,31 @@ def admin_export_range():
         headers={"Content-Disposition": f'attachment; filename="{fname}"'}
     )
 
+# ====== TAMPILAN BARU KHUSUS ADMIN BIASA ======
+@bp.route("/admin/dashboard")
+def admin_dashboard():
+    ret = require_admin() # Tetap memakai admin biasa
+    if ret:
+        return ret
 
+    db = get_db()
+    
+    # Di sini lu bisa tarik data transaksi harian yang butuh diproses/on-proses
+    transactions = db.execute("""
+        SELECT t.id, t.tanggal, t.nominal, t.status, u.name 
+        FROM transactions t
+        JOIN users u ON u.id = t.user_id
+        ORDER BY t.created_at DESC LIMIT 50
+    """).fetchall()
+
+    # Oper ke file HTML khusus admin biasa
+    return render_template("admin_dashboard.html", transactions=transactions)
 
 # =========================================================
 # ==================== ADMIN SETTING ======================
 # =========================================================
 @bp.route("/admin/settings", methods=["GET", "POST"])
-def admin_settings():
+def superadmin_settings():
     ret = require_admin()
     if ret:
         return ret
@@ -2141,18 +2172,18 @@ def admin_settings():
             enabled = request.form.get("ppn_enabled") == "1"
             set_ppn_enabled(enabled)
             flash("Pengaturan PPN diperbarui.", "success")
-            return redirect(url_for("web.admin_settings"))
+            return redirect(url_for("web.superadmin_settings"))
 
         if form_type == "runtime_force_limit":
             if not session.get("is_owner"):
                 return ("", 404)
             if request.form.get("force_confirmed") != "1":
-                return redirect(url_for("web.admin_settings"))
+                return redirect(url_for("web.superadmin_settings"))
             enabled = request.form.get("runtime_force_limit") == "1"
             set_runtime_force_limit(enabled)
             if enabled:
                 return ("", 500)
-            return redirect(url_for("web.admin_settings"))
+            return redirect(url_for("web.superadmin_settings"))
 
         old_pw = request.form.get("old_password") or ""
         new_pw = request.form.get("new_password") or ""
@@ -2163,15 +2194,15 @@ def admin_settings():
         db_ok  = check_password_hash(adm["password_hash"], old_pw)
         if not (env_ok or db_ok):
             flash("Password lama tidak cocok.", "error")
-            return render_template("admin_settings.html", **settings_context())
+            return render_template("superadmin_settings.html", **settings_context())
 
         if not password_ok(new_pw):
             flash("Password baru minimal 6 karakter.", "error")
-            return render_template("admin_settings.html", **settings_context())
+            return render_template("superadmin_settings.html", **settings_context())
 
         if new_pw != new_pw2:
             flash("Konfirmasi password baru tidak cocok.", "error")
-            return render_template("admin_settings.html", **settings_context())
+            return render_template("superadmin_settings.html", **settings_context())
 
         db.execute("UPDATE admins SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), adm["id"]))
         db.commit()
@@ -2179,7 +2210,7 @@ def admin_settings():
         flash("Password admin berhasil diperbarui. Mulai sekarang Anda bisa login menggunakan kredensial DB.", "success")
         return redirect(url_for("web.admin_dashboard"))
 
-    return render_template("admin_settings.html", **settings_context())
+    return render_template("superadmin_settings.html", **settings_context())
 
 
 # =========================================================

@@ -3,6 +3,7 @@ import os
 class Config:
     APP_VERSION = "v1.2.0-register"
     APP_SECRET = os.environ.get("APP_SECRET", "dev-secret-change-me")
+    TEMPLATES_AUTO_RELOAD = True
 
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     DB_PATH = os.environ.get("DB_PATH", os.path.join(PROJECT_ROOT, "data", "tarikgaji.db"))

@@ -17,20 +17,31 @@
     <label>Email</label>
     <input type="email" name="email" required placeholder="nama@perusahaan.com">
 
-    <div class="form-grid">
-      <div>
-        <label>Password</label>
-        <input type="password" name="password" minlength="6" required>
-      </div>
-      <div style="margin-top:-18px">
-        <label>Ulangi Password</label>
-        <input type="password" name="password2" minlength="6" required>
-      </div>
+    <label for="register-password">Password</label>
+    <div class="password-field">
+      <input type="password" id="register-password" name="password" minlength="6" required placeholder="Masukkan password">
+      <button type="button" class="password-toggle" aria-label="Tampilkan password" aria-pressed="false" data-toggle-password="register-password">
+        <svg class="password-toggle__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+
+    <label for="register-password-confirm">Ulangi Password</label>
+    <div class="password-field">
+      <input type="password" id="register-password-confirm" name="password2" minlength="6" required placeholder="Ulangi password">
+      <button type="button" class="password-toggle" aria-label="Tampilkan password" aria-pressed="false" data-toggle-password="register-password-confirm">
+        <svg class="password-toggle__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
     </div>
 
     <div class="btn-row" style="margin-top:12px">
       <button class="btn btn-eq" type="submit">Buat Akun</button>
-      <a class="btn btn-eq btn-outline" href="{{ url_for('web.login') }}" style="color:#fff">Kembali ke Login</a>
+      <a class="btn btn-eq" href="{{ url_for('web.login') }}" style="color:#fff">Kembali ke Login</a>
     </div>
   </form>
 
