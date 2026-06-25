@@ -278,14 +278,16 @@ body.theme-new .password-toggle{background:#eef5ff; color:#0b1220; border-color:
 .auth-layout{
   display:grid;
   grid-template-columns:1fr 1fr;
-  min-height:120vh;
   height:100vh;
+  height:100dvh;
   gap:0;
+  padding:0 0 30px;
   overflow:hidden;
   position:relative;
   background:#ffffff00;
   border-radius: 50px 50px 50px 50px;
   margin: auto;
+  
 }
 .auth-left{
   position:relative;
@@ -294,6 +296,7 @@ body.theme-new .password-toggle{background:#eef5ff; color:#0b1220; border-color:
   align-items:center;
   justify-content:center;
   overflow:hidden;
+  border-radius:50px;
 }
 .auth-wave{
   position:absolute;
@@ -341,7 +344,7 @@ body.theme-new .password-toggle{background:#eef5ff; color:#0b1220; border-color:
   background:#fff;
   overflow:auto;
   position:relative;
-  border-radius:0px 50px 50px 0px;
+  border-radius:50px;
 }
 body:not(.theme-new) .auth-right{
   background:var(--bg);
@@ -352,7 +355,7 @@ body:not(.theme-new) .auth-right{
   max-width:460px;
   background:#fff;
   border-radius:36px;
-  padding:36px 32px;
+  padding:30px 30px 100px 30px;
   margin:auto;
   display:flex;
   flex-direction:column;
@@ -503,7 +506,7 @@ body:not(.theme-new) .auth-divider::before{
   z-index:1;
 }
 body:not(.theme-new) .auth-divider span{
-  background:#00000000;
+  background:#191e2d;
   color:var(--muted);
 }
 
@@ -556,8 +559,9 @@ body:not(.theme-new) .auth-footer-text{
   }
   .auth-left{
     display:block;
-    min-height:260px;
+    height:175px;
     background:linear-gradient(180deg, #1e40af 0%, #3b82f6 100%);
+    border-radius:50px 50px 0 0;
   }
   .auth-brand-section{
     padding:28px 20px 22px;
@@ -580,7 +584,14 @@ body:not(.theme-new) .auth-footer-text{
   .auth-right{
     min-height:auto;
     padding:30px 16px 40px;
+    border-radius:0 0 50px 50px;
   }
+    /* Untuk Chrome, Safari, dan Edge */
+  .auth-right::-webkit-scrollbar, 
+  html::-webkit-scrollbar, 
+  body::-webkit-scrollbar {
+    display: none; /* 💡 Sembunyikan total */
+}
   .auth-form-container{
     max-width:100%;
   }
@@ -1680,7 +1691,7 @@ body.theme-new .employee-intro p{
 
 /* Modal */
 .modal{position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:999}
-.modal-content{background:#fff; color:#111; padding:20px; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,.3)}
+.modal-content{background:#fff; color:#111; padding:20px; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,.3);overflow:hidden; max-width:100%; overflow-x:hidden}
 
 /* === Tombol merah gradasi + blink untuk aksi penting admin === */
 button.btn.btn-sm.btn-alert,
@@ -1744,7 +1755,7 @@ body.theme-new .badge-urg{
 
 /* Tombol pembatalan: 25-detik, minta perhatian */
 .btn-cancel-hot{
-  border:1px solid #a855f7 !important;
+  border:1px solid #ff0000 !important;
   box-shadow:0 0 0 2px rgba(168,85,247,.35);
   color:#fff !important;
 }

@@ -6,7 +6,7 @@ class Config:
     TEMPLATES_AUTO_RELOAD = True
 
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    DB_PATH = os.environ.get("DB_PATH", os.path.join(PROJECT_ROOT, "data", "tarikgaji.db"))
+    DB_PATH = os.environ.get("DB_PATH", os.path.join(PROJECT_ROOT, "data", "tarikgaji-live.db"))
 
     # biaya REG flat per transaksi
     ADMIN_FEE = 15000
@@ -28,5 +28,5 @@ class Config:
     ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASS", "admin123")
 
-    OWNER_USERNAME = os.environ.get("OWNER_USERNAME", "")
-    OWNER_PASSWORD = os.environ.get("OWNER_PASSWORD", "")
+    SUPERADMIN_USERNAME = os.environ.get("SUPERADMIN_USERNAME", "")
+    SUPERADMIN_PASSWORD = os.environ.get("SUPERADMIN_PASSWORD", "")

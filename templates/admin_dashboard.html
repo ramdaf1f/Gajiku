@@ -32,9 +32,10 @@
   <details class="dropdown">
     <summary class="btn btn-outline">Setting <span class="btn-icon btn-icon-burger" aria-hidden="true"></span></summary>
     <div class="dropdown-menu">
-      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_pegawai') }}">Kelola Pegawai</a>
-      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_riwayat') }}">Riwayat Transaksi</a>
-      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_settings') }}">Setup Basic</a>
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_settings') }}">Settings</a>
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_pegawai') }}">Kelola Pegawai</a>
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_riwayat') }}">Riwayat Transaksi</a>
+      <!-- <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_settings') }}">Setup Basic</a> -->
     </div>
   </details>
   <form method="post" action="{{ url_for('web.admin_logout') }}">
@@ -345,14 +346,13 @@ new Chart(ctx, {
   type: 'bar',
   data: {
     labels: {{ chart_labels|tojson }},
-    datasets: [{
-      label: 'Total Tarik Gaji (Rp)',
-      data: {{ chart_values|tojson }},
+    datasets: [{ label: 'Total Tarik Gaji (Rp)',
+      data: {{ (chart_values or [])|tojson }},
       backgroundColor: 'rgba(124, 92, 255, 0.6)',
       borderColor: 'rgba(124, 92, 255, 1)',
       borderWidth: 2,
       borderRadius: 8
-    }]
+      }]
   },
   options: {
     responsive: true,

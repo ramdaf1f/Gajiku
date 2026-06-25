@@ -1,28 +1,42 @@
-# Python
+# ==========================================
+# Python Runtime & Virtual Environment
+# ==========================================
 .venv/
+env/
+ENV/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Env & config
+# ==========================================
+# Environment Variables & Configuration (RAHASIA)
+# ==========================================
 .env
+.env.*
+instance/
 
-# Database (WAJIB)
+# ==========================================
+# Database & Live Data (WAJIB DIAMANKAN)
+# ==========================================
+# Ini akan mengabaikan semua file .db dan .sqlite di folder mana pun
 *.db
 *.sqlite
 *.sqlite3
 
-# Data folder (WAJIB)
+# Ini akan mengabaikan seluruh isi folder data/ tempat database lu berada
 data/
 
-# Logs
+# ==========================================
+# Logs & Temporary Files
+# ==========================================
 *.log
+logs/
+tmp/
 
-# OS
+# ==========================================
+# OS Garbage
+# ==========================================
 .DS_Store
 Thumbs.db
-
-# Git
-.gitignore
 

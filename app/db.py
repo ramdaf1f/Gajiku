@@ -65,7 +65,8 @@ def init_db():
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            avatar_path TEXT DEFAULT ''
+            avatar_path TEXT DEFAULT '',
+            company TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS pegawai (
@@ -96,9 +97,10 @@ def init_db():
             created_at TEXT NOT NULL,
             register_ip TEXT,
             avatar_path TEXT DEFAULT '',
+            company TEXT DEFAULT '',
             FOREIGN KEY (pegawai_id) REFERENCES pegawai(id)
         );
-
+                     
         -- === App settings (global) ===
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,

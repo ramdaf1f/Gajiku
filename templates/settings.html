@@ -18,7 +18,7 @@
 
     <div class="form-actions">
       <button class="btn" type="submit">Simpan</button>
-      <a class="btn btn-outline" href="{{ url_for('web.dashboard') }}">Kembali</a>
+      <button class="btn" type="button" onclick="window.location.href='{{ url_for('web.dashboard') }}'">Kembali</button>
     </div>
   </form>
 </section>

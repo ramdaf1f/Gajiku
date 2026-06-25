@@ -1,9 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Admin • Kelola Pegawai{% endblock %}
+
+{% block title %}
+  {% if session.get('is_superadmin') %}
+    Superadmin • Kelola Pegawai
+  {% else %}
+    Admin • Kelola Pegawai
+  {% endif %}
+{% endblock %}
+
 {% block body_class %}admin-group admin-pegawai{% endblock %}
 {% block content %}
 
-<section class="hero" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+<section class="hero" style="display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:1">
   <div>
     <h1>Daftar Pegawai</h1>
     <p class="muted admin-pegawai-note">Tambah, ubah, non-aktifkan,</br>dan atur siklus gaji
@@ -14,7 +22,10 @@
 
 <section class="actions-row admin-pegawai-actions" style="margin-bottom:12px">
   <button class="btn btn-outline btn-sm admin-pegawai-action" onclick="openAddModal()">+ Pegawai</button>
-  <a class="btn btn-outline btn-sm admin-pegawai-action" href="{{ url_for('web.admin_dashboard') }}">Dashboard</a>
+  <a class="btn btn-outline btn-sm admin-pegawai-action" 
+   href="{{ url_for('web.superadmin_dashboard') if session.get('is_superadmin') else url_for('web.admin_dashboard') }}">
+   Dashboard
+  </a>
 </section>
 
 <style>
@@ -30,7 +41,7 @@
 
 <!-- Filter -->
 <section class="card glass" style="margin-bottom:12px">
-  <form method="get" action="{{ url_for('web.superadmin_pegawai') }}"
+  <form method="get" action="{{ url_for('web.admin_pegawai') }}"
         style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
     <div>
       <label>Cari</label>
@@ -45,7 +56,9 @@
         {% endfor %}
       </select>
     </div>
-    <button class="btn" type="submit">Apply</button>
+    
+    <button class="btn" type="submit" style="margin:0 0 3px 5px">Apply</button>
+    
     <span class="muted" style="margin-left:auto">Total: {{ total }}</span>
   </form>
 </section>
@@ -68,7 +81,6 @@
           <th style="width:11%">Jabatan</th>
           <th style="width:13%">Perusahaan</th>
           <th style="width:10%">Gaji</th>
-          <th style="width:8%">Admin Fee</th>
           <th style="width:7%">Status</th>
           <th style="width:5%">Siklus</th>
           <th style="width:6%">Aksi</th>
@@ -85,7 +97,7 @@
           <td>{{ r['jabatan'] }}</td>
           <td>{{ r['perusahaan'] }}</td>
           <td>{{ "{:,}".format(r['gaji'] or 0).replace(",", ".") }}</td>
-          <td>{{ "{:,}".format(r['admin_fee_flat'] or 15000).replace(",", ".") }}</td>
+          <!-- <td>{{ "{:,}".format(r['admin_fee_flat'] or 15000).replace(",", ".") }}</td> -->
           <td>
             {% if r['status_aktif'] %}
               <span class="badge">AKTIF</span>
@@ -99,7 +111,7 @@
                     onclick='openEditModal({
                       id:{{ r["id"] }},
                       id_pegawai:{{ r["id_pegawai"]|tojson }},
-                      nama:{{ r["nama"]|tojson }},
+                      nama:{{r["nama"]|tojson }},
                       email:{{ r["email"]|tojson }},
                       jabatan:{{ r["jabatan"]|tojson }},
                       perusahaan:{{ r["perusahaan"]|tojson }},
@@ -108,7 +120,6 @@
                       rekening_ewallet:{{ r["rekening_ewallet"]|tojson }},
                       no_telp:{{ r["no_telp"]|tojson }},
                       gaji:{{ (r["gaji"] or 0)|tojson }},
-                      admin_fee_flat:{{ (r["admin_fee_flat"] or 15000)|tojson }},
                       status:{{ (r["status_aktif"] or 0)|tojson }},
                       siklus:{{ (sg or "A")|tojson }}
                     })'>Edit</button>
@@ -125,7 +136,7 @@
 <div id="addModal" class="modal" style="display:none">
   <div class="modal-content modal-skin">
     <h3 style="margin-top:0">Tambah Pegawai</h3>
-    <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.superadmin_pegawai_add') }}">
+    <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.admin_pegawai_add') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div style="grid-column:span 3"><label>ID Pegawai</label><input name="id_pegawai" maxlength="16" pattern="[A-Za-z0-9]{1,16}" placeholder="maks. 16 karakter" autocomplete="off" required></div>
       <div style="grid-column:span 3"><label>Nama</label><input name="nama" required></div>
@@ -144,6 +155,7 @@
           <option value="0">Non-Aktif</option>
         </select>
       </div>
+
       <div style="grid-column:span 2">
         <label>Siklus Gaji</label>
         <div class="cycle-toggle" id="add_siklus">
@@ -153,12 +165,29 @@
           <label><input type="radio" name="siklus_gaji" value="D"><span>D<br><small>26 - 25</small></span></label>
         </div>
       </div>
-      <div style="grid-column:span 2">
+<div style="grid-column:span 3"><label>No Telp</label><input id="m_no_telp" name="no_telp" placeholder="opsional"></div>
+
+      <div style="grid-column:span 4">
+        <label>Status</label>
+        <select id="m_status_aktif" name="status_aktif" class="form-select-api">
+          <option value="1">Aktif</option>
+          <option value="0">Non-Aktif</option>
+        </select>
+      </div>
+
+      <div style="grid-column:span 3">
         <label>Admin Fee Flat</label>
-        <div class="cycle-toggle fee-toggle" id="add_admin_fee_flat">
-          <label><input type="radio" name="admin_fee_flat" value="15000" checked><span>15.000</span></label>
-          <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
-        </div>
+        {% if session.get('is_superadmin') %}
+          <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat" style="z-index: 0 !important; pointer-events: auto; opacity: 1;">
+            <label><input type="radio" name="admin_fee_flat" value="15000"><span>15.000</span></label>
+            <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
+          </div>
+        {% else %}
+          <div class="cycle-toggle fee-toggle" style="opacity: 0.6; pointer-events: none; z-index: 0 !important;">
+            <label><input type="radio" name="admin_fee_flat" value="15000" checked disabled><span>15.000 (Locked)</span></label>
+          </div>
+          <input type="hidden" name="admin_fee_flat" id="m_admin_fee_flat_hidden" value="15000">
+        {% endif %}
       </div>
       <div class="pegawai-form-actions" style="grid-column:1/-1">
         <button type="button" class="btn btn-outline" data-close>Cancel</button>
@@ -193,6 +222,7 @@
           <option value="0">Non-Aktif</option>
         </select>
       </div>
+
       <div style="grid-column:span 2">
         <label>Siklus Gaji</label>
         <div class="cycle-toggle" id="m_siklus">
@@ -202,14 +232,22 @@
           <label><input type="radio" name="siklus_gaji" value="D"><span>D<br><small>26 - 25</small></span></label>
         </div>
       </div>
+
       <div style="grid-column:span 2">
         <label>Admin Fee Flat</label>
-        <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat">
-          <label><input type="radio" name="admin_fee_flat" value="15000"><span>15.000</span></label>
-          <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
-        </div>
+        {% if session.get('is_superadmin') %}
+          <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat" style="z-index: 0 !important;">
+            <label><input type="radio" name="admin_fee_flat" value="15000"><span>15.000</span></label>
+            <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
+          </div>
+        {% else %}
+          <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat_disabled" style="opacity: 0.6; pointer-events: none; z-index: 0 !important;">
+            <label><input type="radio" name="admin_fee_flat" value="15000" disabled><span>15.000</span></label>
+            <label><input type="radio" name="admin_fee_flat" value="17000" disabled><span>17.000</span></label>
+          </div>
+          <input type="hidden" name="admin_fee_flat" id="m_admin_fee_flat_hidden" value="15000">
+        {% endif %}
       </div>
-
     </form>
 
     <form id="deleteForm" method="post" onsubmit="return confirm('Hapus pegawai ini?')">
@@ -238,8 +276,8 @@
       f.reset();
       const defaultCycle = f.querySelector('input[name="siklus_gaji"][value="B"]');
       if(defaultCycle) defaultCycle.checked = true;
-      const defaultFee = f.querySelector('input[name="admin_fee_flat"][value="15000"]');
-      if(defaultFee) defaultFee.checked = true;
+      // const defaultFee = f.querySelector('input[name="admin_fee_flat"][value="15000"]');
+      // if(defaultFee) defaultFee.checked = true;
     }
     m.style.display = 'flex';
     syncModalLayer();
@@ -267,8 +305,8 @@
     if(selectedFee) selectedFee.checked = true;
 
     // set action URLs
-    const updBase = "{{ url_for('web.superadmin_pegawai_update', pid=0) }}"; // /admin/pegawai/0/update
-    const delBase = "{{ url_for('web.superadmin_pegawai_delete', pid=0) }}"; // /admin/pegawai/0/delete
+    const updBase = "{{ url_for('web.admin_pegawai_update', pid=0) }}"; // /admin/pegawai/0/update
+    const delBase = "{{ url_for('web.admin_pegawai_delete', pid=0) }}"; // /admin/pegawai/0/delete
     document.getElementById('editForm').action   = updBase.replace('/0/update', `/${data.id}/update`);
     document.getElementById('deleteForm').action = delBase.replace('/0/delete', `/${data.id}/delete`);
 
@@ -318,7 +356,7 @@
     max-width:760px; width:96%;
     max-height:calc(100vh - 48px);
     max-height:calc(100dvh - 48px);
-    overflow:auto;
+    overflow:hidden;
     background:radial-gradient(120% 140% at 80% -10%, rgba(124,92,255,.12), transparent 60%),
                linear-gradient(180deg, rgba(17,24,48,.98), rgba(10,14,28,.98));
     border:1px solid rgba(255,255,255,.1);

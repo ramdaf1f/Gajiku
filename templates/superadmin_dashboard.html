@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Admin • Dashboard{% endblock %}
+{% block title %}SuperAdmin • Dashboard{% endblock %}
 {% block body_class %}admin-group admin-dashboard{% endblock %}
 {% block content %}
 
@@ -32,9 +32,11 @@
   <details class="dropdown">
     <summary class="btn btn-outline">Setting <span class="btn-icon btn-icon-burger" aria-hidden="true"></span></summary>
     <div class="dropdown-menu">
-      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_pegawai') }}">Kelola Pegawai</a>
-      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_riwayat') }}">Riwayat Transaksi</a>
-      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_settings') }}">Setup Basic</a>
+      
+      <!-- <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_riwayat') }}">Riwayat Transaksi</a> -->
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_settings') }}">Settings</a>
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_admins') }}">Kelola Admin</a>
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_pegawai') }}">Kelola Pegawai</a>
       <button class="btn btn-outline dropdown-link" type="button" id="open-product-modal">Product</button>
       <form method="post" action="{{ url_for('web.admin_reset_data') }}" onsubmit="return confirm('Hapus data operasional (users & transaksi)?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
