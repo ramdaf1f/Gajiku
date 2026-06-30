@@ -319,7 +319,18 @@ def init_db():
 def ensure_db():
     db_path = current_app.config["DB_PATH"]
     db_dir = os.path.dirname(os.path.abspath(db_path))
-    os.makedirs(db_dir, exist_ok=True)
+    
+    # 🔥 FIX UNTUK VERCEL: Cek apakah aplikasi berjalan di Vercel
+    if os.environ.get("VERCEL"):
+        # Jika di Vercel, paksa path database pindah ke folder /tmp
+        # Karena hanya folder /tmp yang diizinkan untuk dibaca dan ditulis (Writable)
+        db_path = os.path.join("/tmp", os.path.basename(db_path))
+        current_app.config["DB_PATH"] = db_path
+        # Di Vercel /tmp sudah pasti ada, jadi kita tidak perlu os.makedirs
+    else:
+        # Jika di lokal laptop lu, tetap buat foldernya seperti biasa
+        os.makedirs(db_dir, exist_ok=True)
+        
     init_db()
 
 
