@@ -1,45 +1,38 @@
 import sqlite3
 import os
-from werkzeug.security import generate_password_hash
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-db_path = os.path.join(PROJECT_ROOT, "data", "tarikgaji-live.db")
+DB_PATH = "data/tarikgaji-live.db"
 
-print(f"Mencoba membuka database di: {db_path}\n")
+if not os.path.exists(DB_PATH):
+    print(f"❌ Database tidak ditemukan di {DB_PATH}!")
+    exit()
 
-conn = sqlite3.connect(db_path)
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
+try:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    print(f"🟢 Berhasil konek ke database: {DB_PATH}")
+    print("🔄 Memulai proses UNDO data perusahaan...")
 
-# Data Superadmin
-super_email = "superadmin@example.com"
-super_password = "superadmin123"
-super_name = "Super Admin"
-
-# Enkripsi password
-password_terenkripsi = generate_password_hash(super_password)
-
-# Cek apakah akun superadmin@example.com sudah ada
-cursor.execute("SELECT * FROM admins WHERE email = ?", (super_email,))
-exist = cursor.fetchone()
-
-if not exist:
-    # 🔥 FIX: Kolom company diisi 'Superadmin' (Bukan NULL) biar lolos NOT NULL constraint
+    # 🟢 BALIKIN POSISI: 
+    # 1. Jika anak_perusahaan adalah 'Springhill', maka kembalikan perusahaan jadi 'Springhill' (atau 'springhill' kecil)
+    # 2. Selain itu, kembalikan nilai dari kolom 'anak_perusahaan' ke kolom 'perusahaan' utama
     cursor.execute("""
-        INSERT INTO admins (name, email, password_hash, role, company, status_aktif, no_telp, created_at) 
-        VALUES (?, ?, ?, 'superadmin', 'Superadmin', 1, '-', datetime('now'))
-    """, (super_name, super_email, password_terenkripsi))
-    print(f"🚀 BERHASIL: Akun Superadmin baru telah dibuat!")
-else:
-    # 🔥 FIX: Pas UPDATE juga kita set company ke 'Superadmin'
-    cursor.execute("""
-        UPDATE admins 
-        SET password_hash = ?, role = 'superadmin', name = ?, status_aktif = 1, company = 'Superadmin'
-        WHERE email = ?
-    """, (password_terenkripsi, super_name, super_email))
-    print(f"🔒 REFRESHED: Akun Superadmin berhasil diperbarui!")
+        UPDATE pegawai
+        SET 
+            perusahaan = CASE 
+                WHEN anak_perusahaan = 'Springhill' THEN 'springhill'
+                ELSE anak_perusahaan
+            END,
+            anak_perusahaan = '' -- Kosongkan kembali kolom anak perusahaan
+        WHERE anak_perusahaan IS NOT NULL AND anak_perusahaan <> ''
+    """)
 
-conn.commit()
-conn.close()
+    conn.commit()
+    print(f"⏪ BERHASIL UNDO! Sebanyak {cursor.rowcount} data pegawai kembali ke struktur semula.")
 
-print("\n🔥 Selesai bro! Akun Superadmin aman dari NOT NULL constraint!")
+except Exception as e:
+    print(f"❌ Terjadi error saat undo data: {e}")
+finally:
+    if 'conn' in locals():
+        conn.close()
+        print("🔒 Koneksi database ditutup.")

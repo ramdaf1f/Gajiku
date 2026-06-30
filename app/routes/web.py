@@ -517,13 +517,22 @@ def login():
             db.commit()
 
         name_for_users = p["nama"] or acc["name"]
-        db.execute("""
-            INSERT INTO users(name, email, gaji, created_at)
-            VALUES (?,?,?,?)
-            ON CONFLICT(email) DO UPDATE SET
-                name=excluded.name,
-                gaji=excluded.gaji
-        """, (name_for_users, p["email"], int(p["gaji"] or 0), datetime.now().isoformat(timespec="seconds")))
+        existing_user = db.execute("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", (p["email"],)).fetchone()
+        
+        if existing_user:
+            # Jika user sudah ada di tabel users, lakukan UPDATE data terbarunya
+            db.execute("""
+                UPDATE users 
+                SET name = ?, gaji = ?
+                WHERE id = ?
+            """, (name_for_users, int(p["gaji"] or 0), existing_user["id"]))
+        else:
+            # Jika belum terdaftar sama sekali, lakukan INSERT baru
+            db.execute("""
+                INSERT INTO users(name, email, gaji, created_at)
+                VALUES (?,?,?,?)
+            """, (name_for_users, p["email"], int(p["gaji"] or 0), datetime.now().isoformat(timespec="seconds")))
+        
         db.commit()
 
         u = get_user_by_email(p["email"])
@@ -820,7 +829,7 @@ def tarik_gaji():
     ppn_enabled = get_ppn_enabled()
     db      = get_db()
     user    = get_user_by_id(session["user_id"])
-    at_date = current_sim_date()
+    at_date = current_sim_date() # Tanggal simulasi bawaan sistem
     limits  = compute_limits(int(user["gaji"] or 0), at_date, user["id"])
     enabled_products = get_enabled_products()
     selected_product = enabled_products[0] if enabled_products else "reg"
@@ -865,20 +874,24 @@ def tarik_gaji():
 
     # ===================== POST =====================
     if request.method == "POST":
-        today    = date.today()
-        last_day = calendar.monthrange(today.year, today.month)[1]
-
-        # --- ambil + validasi tanggal ---
+        print("=== DEBUG: REQUEST POST MASUK KE BACKEND ===")
+        # 🟢 FIX TANGGAL: Ambil acuan bulan/tahun dari AT_DATE simulasi, bukan kalender real server
         try:
-            day = int(request.form.get("tanggal") or today.day)
+            day = int(request.form.get("tanggal") or at_date.day)
         except ValueError:
-            day = today.day
+            day = at_date.day
+            
+        import calendar
+        last_day = calendar.monthrange(at_date.year, at_date.month)[1]
+        
         if day < 1 or day > last_day:
             flash(f"Tanggal tidak valid (1-{last_day}).", "error")
             return render_tarik(at_date, limits)
 
-        at_day  = date(today.year, today.month, day)
-        produk  = (request.form.get("produk") or "reg").strip().lower()  # 'reg' | 'urg'
+        at_day = date(at_date.year, at_date.month, day)
+        
+        # Ambil produk & pastikan lowercase
+        produk = (request.form.get("produk") or "reg").strip().lower()
         if produk not in enabled_products:
             flash("Produk tidak aktif. Pilih produk lain.", "error")
             return render_tarik(
@@ -888,9 +901,14 @@ def tarik_gaji():
                 request.form.get("rekening_tujuan_key"),
             )
         selected_product = produk
-        nominal = parse_int(request.form.get("nominal"), 0)
+        
+        # 🟢 FIX NOMINAL: Buang paksa semua titik ribuan rupiah sebelum diparse ke Integer
+        nominal_raw = request.form.get("nominal") or "0"
+        nominal_clean = "".join(filter(str.isdigit, nominal_raw))
+        nominal = int(nominal_clean) if nominal_clean else 0
+        
         ket     = (request.form.get("keterangan") or "").strip()
-        urg_lock_until = None  # default, hanya terisi bila produk URG
+        urg_lock_until = None  
         selected_rekening_key = (request.form.get("rekening_tujuan_key") or "").strip()
         rekening_by_key = {opt["key"]: opt for opt in rekening_options}
         rekening_choice = rekening_by_key.get(selected_rekening_key)
@@ -906,7 +924,6 @@ def tarik_gaji():
         rekening_tujuan = rekening_choice["value"]
         rekening_tujuan_label = rekening_choice["label"]
 
-
         if nominal <= 0:
             flash("Nominal tarik gaji wajib > 0.", "error")
             return render_tarik(
@@ -917,25 +934,10 @@ def tarik_gaji():
             )
 
         # --- Limit untuk hari yang diminta ---
-        # {plafon, limit_harian, hari_ke, total_sukses, saldo, periode_key, siklus}
         lim_day = compute_limits(int(user["gaji"] or 0), at_day, user["id"])
-
-        # --- Rule: 1x REG + 1x URG maksimum per hari (Hapus)
-        #exists = db.execute("""
-            #SELECT 1 FROM transactions
-            #WHERE user_id=? AND tanggal=? AND product=? AND status NOT IN ('ditolak','dibatalkan')
-            #LIMIT 1
-        #""", (user["id"], at_day.isoformat(), produk)).fetchone()
-        #if exists:
-            #label = "REG" if produk == "reg" else "URG"
-            #flash(f"Pengajuan {label} untuk tanggal ini sudah ada. Maksimal 1x per hari.", "error")
-            #return render_template("tarik_gaji.html",
-                                   #user=user, at_date=at_day, limits=lim_day,
-                                   #ADMIN_FEE=ADMIN_FEE, ADMIN_FEE_PER_DAY=ADMIN_FEE_PER_DAY)
 
         # --- Validasi & fee ---
         if produk == "reg":
-            # untuk REG pakai saldo harian (sudah memperhitungkan siklus A/B)
             if nominal > REG_WITHDRAWAL_MAX:
                 flash(f"Nominal REG maksimal {rupiah_format(REG_WITHDRAWAL_MAX)} per pengajuan.", "error")
                 return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)
@@ -943,86 +945,39 @@ def tarik_gaji():
                 flash(f"Permintaan melebihi limit plafon harian. Sisa hari ini: {rupiah_format(lim_day['saldo'])}.", "error")
                 return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)
             admin_fee = apply_ppn(admin_fee_base)
-		
+        
         else:
-            # ————— URG (adil: limit = sisa plafon; fee = REG-portion + URG-portion) —————
-
-            # 1) Cek lock URG sebelumnya di periode yang sama
-            #last_urg = None
-            #try:
-                # kalau DB lama belum punya kolom urg_lock_until, ALTER TABLE dulu
-                #cols = [row[1] for row in db.execute("PRAGMA table_info(transactions)").fetchall()]
-                #if "urg_lock_until" not in cols:
-                    #db.execute("ALTER TABLE transactions ADD COLUMN urg_lock_until TEXT")
-                    #db.commit()
-
-                #last_urg = db.execute("""
-                    #SELECT tanggal, urg_lock_until
-                    #FROM transactions
-                    #WHERE user_id=? AND periode=? AND product='urg'
-                      #AND status IN ('sukses','on-proses')
-                    #ORDER BY tanggal DESC, id DESC
-                    #LIMIT 1
-                #""", (user["id"], lim_day["periode_key"])).fetchone()
-            #except Exception as e:
-                #print("WARN: gagal cek/membuat kolom urg_lock_until:", e)
-
-            #if last_urg and last_urg["urg_lock_until"]:
-                #try:
-                    #lock_until = date.fromisoformat(last_urg["urg_lock_until"])
-                #except Exception:
-                    #lock_until = None
-
-                #if lock_until is not None and at_day <= lock_until:
-                    #flash(
-                        #f"Pengajuan URG belum boleh. Masa pemakaian URG sebelumnya sampai {lock_until.strftime('%d-%m-%Y')}.",
-                        #"error"
-                    #)
-                    #return render_template(
-                        #"tarik_gaji.html",
-                        #user=user, at_date=at_day, limits=lim_day,
-                        #ADMIN_FEE=ADMIN_FEE, ADMIN_FEE_PER_DAY=ADMIN_FEE_PER_DAY,
-                        #last_rek=last_rek
-                    #)
-
-            # 2) Hitung limit, split REG/URG, fee dan hari lock
+            # ————— URG —————
             plafon        = int(lim_day["plafon"] or 0)
             total_sukses  = int(lim_day["total_sukses"] or 0)
             limit_harian  = int(lim_day["limit_harian"] or 0)
-            hari_ke       = int(lim_day["hari_ke"] or 1)  # A: tgl, B: hari posisi 1..30
+            hari_ke       = int(lim_day["hari_ke"] or 1)  
             sisa_plafon   = max(plafon - total_sukses, 0)
 
-            # Limit URG adil: murni sisa plafon
             limit_urg_max = sisa_plafon
             if nominal > limit_urg_max:
-                flash(
-                    f"Permintaan melebihi limit URG. Maksimal URG saat ini: {rupiah_format(limit_urg_max)} (= sisa plafon).",
-                    "error"
-                )
+                flash(f"Permintaan melebihi limit URG. Maksimal URG saat ini: {rupiah_format(limit_urg_max)}.", "error")
                 return render_tarik(at_day, lim_day, selected_product, selected_rekening_key)
 
-            # Saldo REG tersedia s.d. HARI INI
             saldo_reg_tersedia = max(limit_harian * hari_ke - total_sukses, 0)
 
-            # Split nominal
             reg_portion = min(nominal, saldo_reg_tersedia)
             urg_portion = max(nominal - reg_portion, 0)
 
-            # Fee gabungan
             fee_reg = admin_fee_base if reg_portion > 0 else 0
             fee_urg = math.ceil(urg_portion / limit_harian) * admin_fee_base if limit_harian > 0 else 0
 
             admin_fee = apply_ppn(fee_reg + fee_urg)
 
-            # Hitung masa lock hanya dari porsi URG (maju X hari)
-            #if limit_harian > 0 and urg_portion > 0:
-                #hari_urg_lock = math.ceil(urg_portion / limit_harian)
-                #urg_lock_until = (at_day + timedelta(days=hari_urg_lock)).isoformat()
-            #else:
-                #urg_lock_until = None    
-              
         # --- Window pembatalan 25 detik ---
+        from datetime import datetime, timedelta # Pastikan diimport
         cancel_until = (datetime.now() + timedelta(seconds=25)).isoformat(timespec="seconds")
+
+        # --- Ensure user exists in users table ---
+        user_check = db.execute("SELECT id FROM users WHERE id=?", (user["id"],)).fetchone()
+        if not user_check:
+            flash("Data pengguna tidak ditemukan di sistem. Silakan logout dan login kembali.", "error")
+            return redirect(url_for("web.dashboard", tanggal=at_date.isoformat()))
 
         # --- Simpan transaksi on-proses ---
         db.execute("""
@@ -1032,7 +987,7 @@ def tarik_gaji():
         """, (
             user["id"],
             at_day.isoformat(),
-            lim_day["periode_key"],       # periode mengikuti tanggal yang dipilih
+            lim_day["periode_key"],       
             nominal,
             admin_fee,
             "on-proses",
@@ -1046,10 +1001,8 @@ def tarik_gaji():
         ))
         db.commit()
 
-
         # --- Kirim notifikasi email (best-effort) ---
         try:
-            # ambil metadata pegawai via email user
             peg = db.execute("""
                 SELECT p.id_pegawai, p.nama, p.email, p.perusahaan, p.jabatan
                 FROM users u
@@ -1075,7 +1028,6 @@ def tarik_gaji():
         except Exception as e:
             print("[WARN] Notifikasi email di-skip:", e)
 
-        # Simpan tanggal simulasi & kembali ke dashboard
         session["sim_date"] = at_day.isoformat()
         flash("Pengajuan direkam dan masuk antrian admin (status: on-proses).", "success")
         return redirect(url_for("web.dashboard", tanggal=at_day.isoformat()))
@@ -1179,6 +1131,7 @@ def admin_pegawai():
     if not session.get("is_superadmin"):
         ret = require_admin()
         if ret: return ret
+
     db = get_db()
 
     # [Tetap Aman] Blok pengecekan/migrasi kolom otomatis bawaan lu
@@ -1226,21 +1179,28 @@ def admin_pegawai():
         db.execute("ALTER TABLE pegawai ADD COLUMN admin_fee_flat INTEGER DEFAULT 15000")
         db.commit()
 
-    # Ambil parameter pencarian & filter perusahaan
+    # 1. Ambil parameter filter dari frontend
     q = (request.args.get("q") or "").strip()
-    admin_company = session.get("company")
+    f_company = (request.args.get("company") or "").strip() # Filter anak perusahaan (Cakra, dll)
     
-    # 💡 Ambil status apakah yang login itu superadmin atau bukan
-    is_super = session.get("is_superadmin")
+    # 🏢 Ambil data identitas admin dari session login
+    admin_company = session.get("company") # Nilainya dinamis dari DB admins
+    admin_email = session.get("admin_email")
+    
+    # 💡 DETEKSI ROLE SUPERADMIN (Sama seperti sebelumnya)
+    is_super = session.get("is_superadmin") or session.get("role") == "superadmin"
+    if not is_super and admin_email:
+        admin_db = db.execute("SELECT role FROM admins WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))", (admin_email,)).fetchone()
+        if admin_db and admin_db["role"] == "superadmin":
+            is_super = True
 
-    if is_super:
-        f_company = (request.args.get("company") or "").strip()
-    else:
-        f_company = admin_company
-
+    # =========================================================================
+    # 🔍 PROSES MERAKIT QUERY SQL PEGAWAI (OTOMATIS & DINAMIS)
+    # =========================================================================
     base_sql = """
         SELECT id, COALESCE(id_pegawai,'') AS id_pegawai, nama, email, jabatan, gaji, status_aktif,
                COALESCE(perusahaan,'') AS perusahaan,
+               COALESCE(perusahaan_induk,'') AS perusahaan_induk,
                COALESCE(no_rekening,'') AS no_rekening,
                COALESCE(no_rekening_lain,'') AS no_rekening_lain,
                COALESCE(rekening_ewallet,'') AS rekening_ewallet,
@@ -1252,6 +1212,31 @@ def admin_pegawai():
         WHERE 1=1
     """
     params = []
+    
+    # 🛑 FILTER HAK AKSES OTOMATIS TANPA ELIF HARDCODE
+    if is_super:
+        # Superadmin bebas melihat semua data tanpa batas
+        pass
+    elif admin_company:
+        # Cek secara live ke tabel pegawai: Apakah company si admin ini berstatus sebagai 'perusahaan_induk'?
+        is_parent = db.execute("""
+            SELECT 1 FROM pegawai 
+            WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+
+        if is_parent:
+            # 🏢 JIKA DIA INDUK (Semi-Admin otomatis): Kunci data berdasarkan induknya
+            base_sql += " AND LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?))"
+            params.append(admin_company)
+        else:
+            # 🏢 JIKA DIA PT BIASA / ANAK (Admin lokal biasa): Kunci data langsung ke nama PT-nya
+            base_sql += " AND LOWER(TRIM(perusahaan)) = LOWER(TRIM(?))"
+            params.append(admin_company)
+    else:
+        # Jika session company kosong, proteksi agar tidak menampilkan data
+        base_sql += " AND 1=0"
+
+    # 🔍 FILTER SEARCH BOX
     if q:
         like = f"%{q}%"
         base_sql += """ AND (
@@ -1261,31 +1246,60 @@ def admin_pegawai():
             OR COALESCE(rekening_ewallet,'') LIKE ?
         )"""
         params += [like, like, like, like, like, like, like, like]
+        
+    # 🎯 FILTER DROPDOWN
     if f_company:
-        base_sql += " AND COALESCE(perusahaan,'') = ?"
-        params.append(f_company)
+        base_sql += " AND LOWER(TRIM(COALESCE(perusahaan,''))) = ?"
+        params.append(f_company.strip().lower())
+        
     base_sql += " ORDER BY id DESC"
-
     rows = db.execute(base_sql, params).fetchall()
 
-    if admin_company:
-        companies = [admin_company]
-    else:
-        companies = [
-            r[0] for r in db.execute(
-                "SELECT DISTINCT COALESCE(perusahaan,'') FROM pegawai WHERE COALESCE(perusahaan,'') <> '' ORDER BY perusahaan"
-            ).fetchall()
-        ]
+    # =========================================================================
+    # 🗂️ LOGIK MENAMPILKAN ISI DROPDOWN FILTER SECARA OTOMATIS
+    # =========================================================================
+    # =========================================================================
+    # 🗂️ LOGIK MENAMPILKAN ISI DROPDOWN FILTER SECARA OTOMATIS (FIXED)
+    # =========================================================================
+    # =========================================================================
+    # 🗂️ LOGIK MENAMPILKAN ISI DROPDOWN FILTER SECARA OTOMATIS (SQUASH DUPLICATE)
+    # =========================================================================
+    if is_super:
+        # Superadmin melihat semua anak perusahaan semesta alam (Satu nama unik)
+        company_rows = db.execute("""
+            SELECT DISTINCT LOWER(TRIM(perusahaan)) FROM pegawai 
+            WHERE perusahaan IS NOT NULL AND TRIM(perusahaan) <> ''
+        """).fetchall()
+        # Bikin rapi huruf kapital di depan pakai .title()
+        companies = sorted(list(set([r[0].title() for r in company_rows])))
+        
+    elif admin_company:
+        # Cek ulang status induk untuk menentukan opsi dropdown
+        is_parent = db.execute("""
+            SELECT 1 FROM pegawai 
+            WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
 
-    if admin_company:
-        total_len = db.execute("SELECT COUNT(*) FROM pegawai WHERE COALESCE(perusahaan,'') = ?", (admin_company,)).fetchone()[0]
+        if is_parent:
+            # 🟢 DI SINI FIX-NYA: Kita bungkus pakai LOWER() di SQL biar cakra & Cakra dianggap SAMA
+            company_rows = db.execute("""
+                SELECT DISTINCT LOWER(TRIM(perusahaan)) FROM pegawai 
+                WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?))
+                  AND perusahaan IS NOT NULL AND TRIM(perusahaan) <> ''
+            """, (admin_company,)).fetchall()
+            
+            # Ubah jadi format judul (Kapital di awal kata) dan pastikan unik di Python
+            companies = sorted(list(set([r[0].title() for r in company_rows])))
+        else:
+            # Jika admin PT biasa, dropdown cuma berisi namanya sendiri (dirapikan juga)
+            companies = [admin_company.strip().title()]
     else:
-        total_len = db.execute("SELECT COUNT(*) FROM pegawai").fetchone()[0]
+        companies = []
 
-    # 💡 Kita oper `is_superadmin=is_super` ke HTML biar bisa dipakai buat nge-lock input fee flat
+    total_len = len(rows)
+
     return render_template("admin_pegawai.html",
                            rows=rows, q=q, companies=companies, f_company=f_company, total=total_len, is_superadmin=is_super)
-
 
 @bp.route("/admin/pegawai/add", methods=["POST"], endpoint="admin_pegawai_add")
 def admin_pegawai_add():
@@ -1298,11 +1312,46 @@ def admin_pegawai_add():
     email       = (request.form.get("email") or "").strip().lower()
     jabatan     = (request.form.get("jabatan") or "").strip()
     
-    if session.get("company"):
-        perusahaan = session.get("company")
-    else:
-        perusahaan = (request.form.get("perusahaan") or "").strip()
+    # 🏢 Ambil company dari admin yang sedang login
+    admin_company = session.get("company")
+    
+    # 🗂️ LOGIK MENENTUKAN PERUSAHAAN UTAMA (ANAK PERUSAHAAN)
+    if admin_company and not session.get("is_superadmin"):
+        # Jika dia admin lokal PT biasa (bukan induk/holding), isi otomatis dari session-nya
+        # Tapi jika dia admin Induk (seperti GMI), di form dia milih anak perusahaannya lewat form request
+        db_check = get_db()
+        is_parent_check = db_check.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
         
+        if is_parent_check:
+            # Jika adminnya adalah Induk (GMI), nama anak perusahaan diambil dari inputan form layar
+            perusahaan = (request.form.get("perusahaan") or "").strip()
+        else:
+            # Jika admin lokal biasa (Springhill/PT biasa), dipaksa sesuai PT dia sendiri
+            perusahaan = admin_company.strip()
+    else:
+        # Jika Superadmin, bebas ambil dari inputan form layar
+        perusahaan = (request.form.get("perusahaan") or "").strip()
+
+    # =========================================================================
+    # 🟢 DI SINI PROSES BELAKANG LAYAR OTOMATIS: MENENTUKAN PERUSAHAAN INDUK
+    # =========================================================================
+    perusahaan_induk = ""
+    if admin_company:
+        db_check = get_db()
+        # Cek apakah company milik admin terdaftar sebagai perusahaan induk di database
+        is_parent = db_check.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+        
+        if is_parent:
+            # Otomatis stempel perusahaan_induk di belakang layar tanpa muncul di form inputan!
+            perusahaan_induk = admin_company.strip()
+        else:
+            # Jika admin lokal biasa, set sesuai field database jika diperlukan (atau dikosongkan)
+            perusahaan_induk = ""
+
     no_rekening = (request.form.get("no_rekening") or "").strip()
     no_rekening_lain = (request.form.get("no_rekening_lain") or "").strip()
     rekening_ewallet = (request.form.get("rekening_ewallet") or "").strip()
@@ -1311,11 +1360,9 @@ def admin_pegawai_add():
     status      = 1 if request.form.get("status") == "1" else 0
     siklus      = normalize_siklus(request.form.get("siklus_gaji"), default="B")
     
-    # 💡 SATPAM BACKEND: Cek apakah user adalah Superadmin
     if session.get("is_superadmin"):
         admin_fee_flat = normalize_admin_fee_flat(request.form.get("admin_fee_flat"), default=15000)
     else:
-        # Jika admin biasa, paksa mutlak ke 15000 tanpa kompromi
         admin_fee_flat = 15000
 
     if not id_pegawai or not nama or not email:
@@ -1329,18 +1376,29 @@ def admin_pegawai_add():
         return redirect(url_for("web.admin_pegawai"))
 
     db = get_db()
+    
     exists = db.execute(
-        "SELECT 1 FROM pegawai WHERE id_pegawai=? OR email=? OR nama=?",
-        (id_pegawai, email, nama),
+        "SELECT 1 FROM pegawai WHERE id_pegawai=? OR LOWER(email)=? OR LOWER(nama)=?",
+        (id_pegawai, email, nama.lower()),
     ).fetchone()
     if exists:
         flash("ID pegawai, nama, atau email sudah terdaftar.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
+    # 🚀 JALANKAN INSERT DATA BESERTA KOLOM perusahaan_induk HASIL OTOMATISASI BACKEND
     db.execute("""
-        INSERT INTO pegawai (id_pegawai, nama, email, jabatan, gaji, status_aktif, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus_gaji, admin_fee_flat, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, admin_fee_flat, datetime.now().isoformat(timespec="seconds")))
+        INSERT INTO pegawai (
+            id_pegawai, nama, email, jabatan, gaji, status_aktif, 
+            perusahaan, perusahaan_induk, no_rekening, no_rekening_lain, 
+            rekening_ewallet, no_telp, siklus_gaji, admin_fee_flat, created_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        id_pegawai, nama, email, jabatan, gaji, status, 
+        perusahaan, perusahaan_induk, no_rekening, no_rekening_lain, 
+        rekening_ewallet, no_telp, siklus, admin_fee_flat, 
+        datetime.now().isoformat(timespec="seconds")
+    ))
     db.commit()
 
     flash("Pegawai ditambahkan.", "success")
@@ -1359,11 +1417,50 @@ def admin_pegawai_update(pid):
     email      = (request.form.get("email") or "").strip().lower()
     jabatan    = (request.form.get("jabatan") or "").strip()
     
-    if session.get("company"):
-        perusahaan = session.get("company")
-    else:
-        perusahaan = (request.form.get("perusahaan") or "").strip()
+    # 🏢 Ambil company dari admin yang sedang login
+    admin_company = session.get("company")
+    
+    # 🗂️ LOGIK MENENTUKAN PERUSAHAAN UTAMA (ANAK PERUSAHAAN)
+    if admin_company and not session.get("is_superadmin"):
+        # Cek apakah dia admin induk/holding
+        is_parent_check = db.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
         
+        if is_parent_check:
+            # Admin Induk (GMI): Anak perusahaan bebas diubah via form layar
+            perusahaan = (request.form.get("perusahaan") or "").strip()
+        else:
+            # Admin lokal PT biasa: Dipaksa sesuai perusahaan dia sendiri
+            perusahaan = admin_company.strip()
+    else:
+        # Superadmin: Bebas mengambil dari inputan form layar
+        perusahaan = (request.form.get("perusahaan") or "").strip()
+
+    # =========================================================================
+    # 🟢 DI SINI PROSES BELAKANG LAYAR OTOMATIS: MENENTUKAN PERUSAHAAN INDUK
+    # =========================================================================
+    perusahaan_induk = ""
+    if admin_company and not session.get("is_superadmin"):
+        # Cek status induk admin login
+        is_parent = db.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+        
+        if is_parent:
+            perusahaan_induk = admin_company.strip()
+    else:
+        # 👑 Proteksi Khusus Superadmin: Jika superadmin mengubah data anak perusahaan, 
+        # kita bantu lacak otomatis siapa perusahaan induknya berdasarkan database historis
+        if perusahaan:
+            parent_match = db.execute("""
+                SELECT perusahaan_induk FROM pegawai 
+                WHERE LOWER(TRIM(perusahaan)) = LOWER(TRIM(?)) 
+                  AND perusahaan_induk IS NOT NULL AND perusahaan_induk <> '' LIMIT 1
+            """, (perusahaan,)).fetchone()
+            if parent_match:
+                perusahaan_induk = parent_match["perusahaan_induk"]
+
     no_rekening = (request.form.get("no_rekening") or "").strip()
     no_rekening_lain = (request.form.get("no_rekening_lain") or "").strip()
     rekening_ewallet = (request.form.get("rekening_ewallet") or "").strip()
@@ -1372,11 +1469,9 @@ def admin_pegawai_update(pid):
     status     = 1 if request.form.get("status") == "1" else 0
     siklus     = normalize_siklus(request.form.get("siklus_gaji"), default="A")
 
-    # 💡 SATPAM BACKEND: Mengamankan data fee lama jika di-update oleh Admin biasa
     if session.get("is_superadmin"):
         admin_fee_flat = normalize_admin_fee_flat(request.form.get("admin_fee_flat"), default=15000)
     else:
-        # Tarik nilai asli dari database biar gak berubah/ngikutin form palsu
         current_data = db.execute("SELECT admin_fee_flat FROM pegawai WHERE id=?", (pid,)).fetchone()
         admin_fee_flat = current_data["admin_fee_flat"] if current_data else 15000
 
@@ -1393,23 +1488,24 @@ def admin_pegawai_update(pid):
     row = db.execute("SELECT email FROM pegawai WHERE id=?", (pid,)).fetchone()
     old_email = (row["email"] or "").strip().lower() if row else ""
     
-    exists_sql = "SELECT id FROM pegawai WHERE (email=? OR nama=?"
-    exists_params = [email, nama]
+    exists_sql = "SELECT id FROM pegawai WHERE (LOWER(email)=? OR LOWER(nama)=?"
+    exists_params = [email, nama.lower()]
     if id_pegawai:
         exists_sql += " OR COALESCE(id_pegawai,'')=?"
         exists_params.append(id_pegawai)
     exists_sql += ") AND id<>?"
     exists_params.append(pid)
+    
     exists = db.execute(exists_sql, exists_params).fetchone()
     if exists:
         flash("ID pegawai/nama/email bentrok dengan data lain.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
-    # Update master pegawai (Aman dengan validasi admin_fee_flat)
+    # 🚀 JALANKAN UPDATE MASTER PEGAWAI BESERTA KOLOM perusahaan_induk
     db.execute("""UPDATE pegawai
-                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, no_rekening=?, no_rekening_lain=?, rekening_ewallet=?, no_telp=?, siklus_gaji=?, admin_fee_flat=?
+                  SET id_pegawai=?, nama=?, email=?, jabatan=?, gaji=?, status_aktif=?, perusahaan=?, perusahaan_induk=?, no_rekening=?, no_rekening_lain=?, rekening_ewallet=?, no_telp=?, siklus_gaji=?, admin_fee_flat=?
                   WHERE id=?""",
-               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, admin_fee_flat, pid))
+               (id_pegawai, nama, email, jabatan, gaji, status, perusahaan, perusahaan_induk, no_rekening, no_rekening_lain, rekening_ewallet, no_telp, siklus, admin_fee_flat, pid))
 
     db.execute(
         "UPDATE user_accounts SET status_aktif=?, email=? WHERE pegawai_id=?",
@@ -1423,6 +1519,7 @@ def admin_pegawai_update(pid):
     flash("Data pegawai diperbarui dan disinkron ke akun formal.", "success")
     return redirect(url_for("web.admin_pegawai"))
 
+
 @bp.route("/admin/pegawai/<int:pid>/delete", methods=["POST"])
 def admin_pegawai_delete(pid: int):
     if not session.get("is_superadmin"):
@@ -1432,7 +1529,7 @@ def admin_pegawai_delete(pid: int):
     
     # 💡 SATPAM VALIDASI KEPEMILIKAN DATA
     is_super = session.get("is_superadmin")
-    admin_company = session.get("company")
+    admin_company = (session.get("company") or "").strip()
     
     # Cek dulu data pegawainya ada atau enggak
     row = db.execute("SELECT * FROM pegawai WHERE id=?", (pid,)).fetchone()
@@ -1440,13 +1537,38 @@ def admin_pegawai_delete(pid: int):
         flash("Pegawai tidak ditemukan.", "error")
         return redirect(url_for("web.admin_pegawai"))
         
-    # Jika dia BUKAN superadmin, cek apakah PT pegawai sesuai dengan PT si admin
+    # =========================================================================
+    # 🛑 PROTEKSI OTOMATIS BERDASARKAN LEVEL INDUK / ANAK PERUSAHAAN
+    # =========================================================================
     if not is_super:
-        if (row["perusahaan"] or "").strip() != (admin_company or "").strip():
-            flash("Akses ditolak! Anda tidak berhak menghapus pegawai dari perusahaan lain.", "error")
+        if not admin_company:
+            flash("Akses ditolak! Anda tidak memiliki otoritas perusahaan.", "error")
             return redirect(url_for("web.admin_pegawai"))
 
-    # ---- Blok Proses Sapu Bersih Data (Punya Lu) ----
+        # Cek secara live ke database apakah admin yang login bertindak sebagai Perusahaan Induk
+        is_parent = db.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+
+        pegawai_company = (row["perusahaan"] or "").strip().lower()
+        pegawai_induk = (row["perusahaan_induk"] or "").strip().lower()
+
+        if is_parent:
+            # 🏢 JIKA ADMIN ADALAH INDUK (Holding/GMI): 
+            # Izinkan hapus hanya jika perusahaan_induk si pegawai klop dengan company milik admin
+            if pegawai_induk != admin_company.strip().lower():
+                flash("Akses ditolak! Pegawai ini tidak berada di bawah naungan holding Anda.", "error")
+                return redirect(url_for("web.admin_pegawai"))
+        else:
+            # 🏢 JIKA ADMIN PT BIASA / LOKAL:
+            # Tetap dikunci mati hanya boleh menghapus data dari PT-nya sendiri
+            if pegawai_company != admin_company.strip().lower():
+                flash("Akses ditolak! Anda tidak berhak menghapus pegawai dari perusahaan lain.", "error")
+                return redirect(url_for("web.admin_pegawai"))
+
+    # =========================================================================
+    # ---- Blok Proses Sapu Bersih Data (Tetap Aman Punya Lu) ----
+    # =========================================================================
     try:
         db.execute("PRAGMA foreign_keys = ON;")
     except Exception:
@@ -1665,8 +1787,26 @@ def superadmin_dashboard():
     s_first = first_day.isoformat()
     s_next  = first_day_next.isoformat()
 
+    # 1. Ambil tanggal dari sistem simulasi aplikasi lu (Gunakan sim_today, JANGAN datetime.now())
     sim_today = current_sim_date()
+    
+    # 2. Bikin kunci periode (Hasilnya pasti string: "2026-06")
     periode_key = f"{sim_today.year}-{sim_today.month:02d}"
+    mk = periode_key # samakan dengan variabel mk milik employee
+
+    # 3. Set s_first menjadi tanggal 1 di bulan simulasi berjalan
+    first_day = date(sim_today.year, sim_today.month, 1)
+    s_first = first_day.isoformat() # Hasil: "2026-06-01"
+
+    # 4. Set s_next menjadi tanggal 1 di bulan berikutnya berdasarkan bulan simulasi
+    if sim_today.month == 12:
+        first_day_next = date(sim_today.year + 1, 1, 1)
+    else:
+        first_day_next = date(sim_today.year, sim_today.month + 1, 1)
+    s_next = first_day_next.isoformat() # Hasil: "2026-07-01"
+
+    # 5. Set besok_sim untuk handle transaksi hari ini murni (Jika lu mau pakai range dinamis)
+    # besok_sim = sim_today + timedelta(days=1)
 
     def add_months(d: date, delta: int) -> date:
         y = d.year + (d.month - 1 + delta) // 12
@@ -1874,33 +2014,50 @@ def superadmin_dashboard():
     admin_fee_recap_label = format_period_label(admin_fee_month) if admin_fee_month else "All"
 
     # --- Transaksi terbaru bulan berjalan (pakai tanggal bulanan)
+# 🟢 SAMAKAN JOIN NYA KE TABEL 'users' DAN SINKRONKAN FILTER PERUSAHAAN
+    # 🟢 DI SUPERADMIN CUKUP FILTER BERDASARKAN PERIODE BULAN SAJA
     recent = db.execute("""
         SELECT t.tanggal, t.created_at, t.nominal, t.admin_fee, t.status, t.product,
                u.name AS nama,
                COALESCE(p.id_pegawai, '') AS id_pegawai
         FROM transactions t
-        JOIN user_accounts u ON u.id=t.user_id
-        LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
-        WHERE t.tanggal >= ? AND t.tanggal < ?
+        JOIN users u ON u.id = t.user_id
+        LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
+        WHERE t.periode = ?  -- 1 tanda tanya murni untuk mengunci bulan berjalan global
         ORDER BY t.created_at DESC, t.id DESC
-        LIMIT 10
-    """, (s_first, s_next)).fetchall()
+        LIMIT 100
+    """, (periode_key,)).fetchall() # 🟢 Kasih 1 parameter saja (Jangan lupa koma di ujung tuple-nya!)
 
     # --- Antrian on-proses REG & URG (jangan pakai periode—ambil yang benar2 on-proses)
+    # pending_reg = db.execute("""
+    #     SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
+    #            COALESCE(p.id_pegawai, '') AS id_pegawai,
+    #            COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+    #            COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
+    #            COALESCE(p.no_telp, '') AS no_telp,
+    #            u.name AS nama,
+    #            COALESCE(p.jabatan, '') AS jabatan,
+    #            COALESCE(p.perusahaan, '') AS perusahaan
+    #     FROM transactions t
+    #     JOIN user_accounts u ON u.id=t.user_id
+    #     LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
+    #     WHERE t.status='on-proses' AND t.product='reg'
+    #     ORDER BY t.created_at ASC, t.id ASC
+    # """).fetchall()
+
     pending_reg = db.execute("""
-        SELECT t.id, t.tanggal, t.created_at, t.nominal, t.admin_fee, t.product,
-               COALESCE(p.id_pegawai, '') AS id_pegawai,
-               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
-               COALESCE(p.no_telp, '') AS no_telp,
-               u.name AS nama,
-               COALESCE(p.jabatan, '') AS jabatan,
-               COALESCE(p.perusahaan, '') AS perusahaan
-        FROM transactions t
-        JOIN user_accounts u ON u.id=t.user_id
-        LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
-        WHERE t.status='on-proses' AND t.product='reg'
-        ORDER BY t.created_at ASC, t.id ASC
+    SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee,
+           p.id_pegawai, 
+           COALESCE(u.name, 'Pegawai Tanpa Akun') AS nama, 
+           COALESCE(p.perusahaan, '-') AS perusahaan, 
+           COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+           COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
+           p.no_telp, p.jabatan
+    FROM transactions t
+    LEFT JOIN users u ON u.id = t.user_id -- 🟢 Ganti dari user_accounts ke users!
+    LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) -- 🟢 Samakan relasinya pakai email sesuai profil employee
+    WHERE t.status='on-proses' AND t.product='reg'
+    ORDER BY t.created_at ASC, t.id ASC
     """).fetchall()
 
     pending_urg = db.execute("""
@@ -1913,8 +2070,8 @@ def superadmin_dashboard():
                COALESCE(p.jabatan, '') AS jabatan,
                COALESCE(p.perusahaan, '') AS perusahaan
         FROM transactions t
-        JOIN user_accounts u ON u.id=t.user_id
-        LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
+        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
         WHERE t.status='on-proses' AND t.product='urg'
         ORDER BY t.created_at ASC, t.id ASC
     """).fetchall()
@@ -2223,14 +2380,25 @@ def admin_dashboard():
 
     db = get_db()
     
-    # 🏢 Ambil nama PT/Perusahaan si admin yang login dari session
+    # 🏢 Ambil data identitas admin dari session login
     admin_company = session.get("company")
-    # 🕵️‍♂️ Deteksi apakah ini akun dev global
-    admin_email = session.get("admin_email", "").lower()
-    is_dev_global = (admin_email == "admin@example.com")
+    admin_email = session.get("admin_email", "").lower() or session.get("email", "").lower()
+    
+    # 💡 DETEKSI ROLE (Superadmin vs Induk vs Anak)
+    is_super = session.get("is_superadmin") or session.get("role") == "superadmin" or admin_email == "admin@example.com"
+    
+    # Cek secara live ke database apakah company milik admin bertindak sebagai Perusahaan Induk
+    is_parent = False
+    if admin_company and not is_super:
+        parent_check = db.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+        if parent_check:
+            is_parent = True
 
     enabled_products = get_enabled_products()
     ppn_enabled = get_ppn_enabled()
+    
     admin_fee_month = (request.args.get("admin_fee_month") or "").strip()
     if admin_fee_month:
         try:
@@ -2238,276 +2406,282 @@ def admin_dashboard():
             date(y, m, 1)
         except Exception:
             admin_fee_month = ""
-    today = date.today()
 
-    # Bulan berjalan (kalender) utk tampilan dashboard
-    mk = today.strftime("%Y-%m")
-    first_day = date(today.year, today.month, 1)
-    if today.month == 12:
-        first_day_next = date(today.year + 1, 1, 1)
-    else:
-        first_day_next = date(today.year, today.month + 1, 1)
-    s_first = first_day.isoformat()
-    s_next  = first_day_next.isoformat()
-
+    # =========================================================================
+    # 🟢 KENDALI WAKTU MULTI-URUSAN (MURNI BERBASIS SIMULASI)
+    # =========================================================================
     sim_today = current_sim_date()
     periode_key = f"{sim_today.year}-{sim_today.month:02d}"
+    mk = periode_key 
+
+    first_day = date(sim_today.year, sim_today.month, 1)
+    s_first = first_day.isoformat()
+
+    if sim_today.month == 12:
+        first_day_next = date(sim_today.year + 1, 1, 1)
+    else:
+        first_day_next = date(sim_today.year, sim_today.month + 1, 1)
+    s_next = first_day_next.isoformat()
 
     def add_months(d: date, delta: int) -> date:
         y = d.year + (d.month - 1 + delta) // 12
         m = (d.month - 1 + delta) % 12 + 1
         return date(y, m, 1)
 
-    trend_start = add_months(date(today.year, today.month, 1), -5)
+    trend_start = add_months(first_day, -5)
     trend_start_key = trend_start.strftime("%Y-%m")
     
-    # Cache key khusus (jika dev global, satukan key-nya agar tidak bentrok dengan PT biasa)
-    cache_company_key = "GLOBAL_DEV" if is_dev_global else admin_company
-    cache_key = f"admin_kpi:v2:{cache_company_key}:{s_first}:{s_next}:{periode_key}:{trend_start_key}"
+    # Penentuan Cache Key dinamis berdasarkan status kepemilikan data
+    if is_super:
+        cache_company_key = "GLOBAL_SUPER"
+    elif is_parent:
+        cache_company_key = f"PARENT_{admin_company}"
+    else:
+        cache_company_key = f"LOCAL_{admin_company}"
+        
+    cache_key = f"admin_kpi:v5:{cache_company_key}:{s_first}:{s_next}:{periode_key}:{trend_start_key}"
     cached_kpi = get_cache(cache_key)
     
     if cached_kpi:
         (
-            transactions, total_pegawai, total_register, reg_aktif, eligible,
-            trx_count, trx_sum, unique_borrowers, not_borrowed,
+            transactions, recent, total_pegawai, total_register, reg_aktif, eligible,
+            trx_count, trx_sum, unique_borrowers, not_borrowed, not_registered,
             admin_fee_reg_total, admin_fee_urg_total, admin_fee_total,
             pending_count, pending_reg, pending_urg,
             cycle_a, cycle_b, cycle_c, cycle_d, inactive_count,
             chart_labels, chart_values, trend_labels, trend_values, cohort_rows,
         ) = cached_kpi
     else:
-        # ====================================================
-        # GENERASI DATA JIKA CACHE KOSONG
-        # ====================================================
+        # =========================================================================
+        # 📊 GENERASI DATA JIKA CACHE KOSONG (SINKRON DENGAN STRUKTUR HOLDING / GMI)
+        # =========================================================================
         
-        if is_dev_global:
-            # 🌐 1. AMBIL DATA GLOBAL (TANPA FILTER COMPANY)
+        # Aturan main skope data filter perusahaan
+        if is_super:
+            where_clause = "1=1"
+            where_params = []
+        elif is_parent:
+            where_clause = "LOWER(TRIM(p.perusahaan_induk)) = ?"
+            where_params = [admin_company.strip().lower()]
+        else:
+            where_clause = "LOWER(TRIM(p.perusahaan)) = ?"
+            where_params = [admin_company.strip().lower()]
+
+        # 1) AMBIL DATA DAFTAR TRANSAKSI (SINKRON KE TABEL 'users')
+        if is_super:
             transactions = db.execute("""
-                SELECT t.id, t.tanggal, t.nominal, t.status, u.name 
+                SELECT t.id, t.tanggal, t.created_at, t.nominal, t.status, t.product,
+                       u.name AS nama, p.id_pegawai
                 FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                ORDER BY t.created_at DESC LIMIT 50
-            """).fetchall()
+                JOIN users u ON u.id = t.user_id
+                LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
+                WHERE date(t.tanggal) >= date(?) AND date(t.tanggal) < date(?)
+                ORDER BY date(t.tanggal) DESC, t.id DESC LIMIT 50
+            """, (s_first, s_next)).fetchall()
+        else:
+            transactions = db.execute(f"""
+                SELECT t.id, t.tanggal, t.created_at, t.nominal, t.status, t.product,
+                       u.name AS nama, p.id_pegawai
+                FROM transactions t
+                JOIN users u ON u.id = t.user_id
+                JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
+                WHERE {where_clause} AND date(t.tanggal) >= date(?) AND date(t.tanggal) < date(?)
+                ORDER BY date(t.tanggal) DESC, t.id DESC LIMIT 50
+            """, where_params + [s_first, s_next]).fetchall()
 
+        # 2) HITUNG KPI DASAR (Pegawai & Register - SINKRON KE TABEL 'users')
+        # 2) HITUNG KPI DASAR (Pegawai & Register - SINKRON KE TABEL 'users')
+        if is_super:
             total_pegawai  = db.execute("SELECT COUNT(*) FROM pegawai").fetchone()[0]
-            total_register = db.execute("SELECT COUNT(*) FROM user_accounts").fetchone()[0]
-            reg_aktif      = db.execute("SELECT COUNT(*) FROM user_accounts WHERE status_aktif=1").fetchone()[0]
+            total_register = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            # Di bawah ini juga disesuaikan jika superadmin ikut error, pastikan cek kolom yg benar
+            reg_aktif      = db.execute("SELECT COUNT(*) FROM users u JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE p.status_aktif=1").fetchone()[0]
             eligible       = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1").fetchone()[0]
+            inactive_count = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=0").fetchone()[0]
+        else:
+            peg_where = "LOWER(TRIM(perusahaan_induk)) = ?" if is_parent else "LOWER(TRIM(perusahaan)) = ?"
+            total_pegawai  = db.execute(f"SELECT COUNT(*) FROM pegawai WHERE {peg_where}", [admin_company.strip().lower()]).fetchone()[0]
+            
+            # --- BAGIAN YANG DIUPDATE (u.status_aktif diganti p.status_aktif) ---
+            total_register = db.execute(f"SELECT COUNT(*) FROM users u JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE {where_clause}", where_params).fetchone()[0]
+            reg_aktif      = db.execute(f"SELECT COUNT(*) FROM users u JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE p.status_aktif=1 AND {where_clause}", where_params).fetchone()[0]
+            # ---------------------------------------------------------------------
+            
+            eligible       = db.execute(f"SELECT COUNT(*) FROM pegawai p WHERE p.status_aktif=1 AND {where_clause}", where_params).fetchone()[0]
+            inactive_count = db.execute(f"SELECT COUNT(*) FROM pegawai p WHERE p.status_aktif=0 AND {where_clause}", where_params).fetchone()[0]
+        # 3) HITUNG NOMINAL & JUMLAH TRANSAKSI
+        if is_super:
+            trx_count = db.execute("SELECT COUNT(*) FROM transactions WHERE tanggal >= ? AND tanggal < ?", (s_first, s_next)).fetchone()[0]
+            trx_sum = db.execute("SELECT COALESCE(SUM(nominal),0) FROM transactions WHERE status='sukses' AND tanggal >= ? AND tanggal < ?", (s_first, s_next)).fetchone()[0]
+            unique_borrowers = db.execute("SELECT COUNT(DISTINCT user_id) FROM transactions WHERE tanggal >= ? AND tanggal < ? AND status IN ('sukses','on-proses')", (s_first, s_next)).fetchone()[0]
+        else:
+            trx_count = db.execute(f"SELECT COUNT(*) FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE {where_clause} AND t.tanggal >= ? AND t.tanggal < ?", where_params + [s_first, s_next]).fetchone()[0]
+            trx_sum = db.execute(f"SELECT COALESCE(SUM(t.nominal),0) FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE t.status='sukses' AND {where_clause} AND t.tanggal >= ? AND t.tanggal < ?", where_params + [s_first, s_next]).fetchone()[0]
+            unique_borrowers = db.execute(f"SELECT COUNT(DISTINCT t.user_id) FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE {where_clause} AND t.tanggal >= ? AND t.tanggal < ? AND t.status IN ('sukses','on-proses')", where_params + [s_first, s_next]).fetchone()[0]
 
-            trx_count = db.execute("""
-                SELECT COUNT(*) FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.tanggal >= ? AND t.tanggal < ?
-            """, (s_first, s_next)).fetchone()[0]
+        not_borrowed = max(total_register - unique_borrowers, 0)
+        not_registered = max(total_pegawai - total_register, 0)
 
-            trx_sum = 0 # ❌ DIBLOKIR
+        # 4) HITUNG ADMIN FEE (PENDAPATAN)
+        if is_super:
+            row_fee = db.execute("SELECT COALESCE(SUM(CASE WHEN product='reg' THEN admin_fee END), 0) AS fee_reg, COALESCE(SUM(CASE WHEN product='urg' THEN admin_fee END), 0) AS fee_urg FROM transactions WHERE periode = ? AND status IN ('sukses', 'on-proses')", (periode_key,)).fetchone()
+        else:
+            row_fee = db.execute(f"SELECT COALESCE(SUM(CASE WHEN t.product='reg' THEN t.admin_fee END), 0) AS fee_reg, COALESCE(SUM(CASE WHEN t.product='urg' THEN t.admin_fee END), 0) AS fee_urg FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE t.periode = ? AND t.status IN ('sukses', 'on-proses') AND {where_clause}", [periode_key] + where_params).fetchone()
 
-            unique_borrowers = db.execute("""
-                SELECT COUNT(DISTINCT t.user_id) FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.tanggal >= ? AND t.tanggal < ? AND t.status IN ('sukses','on-proses')
-            """, (s_first, s_next)).fetchone()[0]
+        admin_fee_reg_total = int(row_fee["fee_reg"] or 0)
+        admin_fee_urg_total = int(row_fee["fee_urg"] or 0)
+        admin_fee_total = admin_fee_reg_total + admin_fee_urg_total
 
-            not_borrowed = max(total_register - unique_borrowers, 0)
-
-            admin_fee_reg_total  = 0 # ❌ DIBLOKIR
-            admin_fee_urg_total  = 0 # ❌ DIBLOKIR
-            admin_fee_total      = 0 # ❌ DIBLOKIR
-
+        # 5) DATA PERMINTAAN ON-PROSES (PENDING REG & URG) - FIXED VIA TABLE 'users' & LOWER TRIM
+        if is_super:
             pending_count = db.execute("""
-                SELECT COUNT(*) 
-                FROM transactions t
-                WHERE t.status = 'on-proses'
+                SELECT COUNT(*) FROM transactions 
+                WHERE LOWER(TRIM(status)) = 'on-proses'
             """).fetchone()[0]
 
             pending_reg = db.execute("""
-                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee,
-                       p.id_pegawai, u.name AS nama, u.company AS perusahaan, 
-                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
-                       p.no_telp, p.jabatan
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                LEFT JOIN pegawai p ON p.id = u.pegawai_id
-                WHERE t.status='on-proses' AND t.product='reg'
+                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee, 
+                       p.id_pegawai, COALESCE(u.name, 'Pegawai') AS nama, COALESCE(p.perusahaan, '-') AS perusahaan, 
+                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening, 
+                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label, 
+                       p.no_telp, p.jabatan 
+                FROM transactions t 
+                LEFT JOIN users u ON u.id = t.user_id 
+                LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE LOWER(TRIM(t.status)) = 'on-proses' AND LOWER(TRIM(t.product)) = 'reg' 
                 ORDER BY t.created_at ASC, t.id ASC
             """).fetchall()
 
             pending_urg = db.execute("""
-                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee,
-                       p.id_pegawai, u.name AS nama, u.company AS perusahaan, 
-                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
-                       p.no_telp, p.jabatan
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                LEFT JOIN pegawai p ON p.id = u.pegawai_id
-                WHERE t.status='on-proses' AND t.product='urg'
+                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee, 
+                       p.id_pegawai, COALESCE(u.name, 'Pegawai') AS nama, COALESCE(p.perusahaan, '-') AS perusahaan, 
+                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening, 
+                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label, 
+                       p.no_telp, p.jabatan 
+                FROM transactions t 
+                LEFT JOIN users u ON u.id = t.user_id 
+                LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE LOWER(TRIM(t.status)) = 'on-proses' AND LOWER(TRIM(t.product)) = 'urg' 
                 ORDER BY t.created_at ASC, t.id ASC
             """).fetchall()
 
-            cycle_a = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='A'").fetchone()[0]
-            cycle_b = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='B'").fetchone()[0]
-            cycle_c = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='C'").fetchone()[0]
-            cycle_d = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='D'").fetchone()[0]
-            inactive_count = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=0").fetchone()[0]
-
-            # Grafik Kosong / Nol untuk Dev Global agar finansial tidak bocor
-            chart_labels = []
-            chart_values = []
-            trend_months = [add_months(trend_start, i).strftime("%Y-%m") for i in range(6)]
-            trend_labels = trend_months
-            trend_values = [0] * 6
-            cohort_rows = []
-
+            recent = db.execute("""
+                SELECT t.tanggal, t.created_at, t.nominal, t.admin_fee, t.status, t.product, 
+                       u.name AS nama, COALESCE(p.id_pegawai, '') AS id_pegawai 
+                FROM transactions t 
+                JOIN users u ON u.id = t.user_id 
+                LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE t.periode = ? 
+                ORDER BY t.created_at DESC, t.id DESC LIMIT 100
+            """, (periode_key,)).fetchall()
         else:
-            # 🏢 2. AMBIL DATA NORMAL (UNTUK ADMIN PT BIASA)
-            transactions = db.execute("""
-                SELECT t.id, t.tanggal, t.nominal, t.status, u.name 
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE u.company = ?
-                ORDER BY t.created_at DESC LIMIT 50
-            """, (admin_company,)).fetchall()
-
-            total_pegawai  = db.execute("SELECT COUNT(*) FROM pegawai WHERE perusahaan=?", (admin_company,)).fetchone()[0]
-            total_register = db.execute("SELECT COUNT(*) FROM user_accounts WHERE company=?", (admin_company,)).fetchone()[0]
-            reg_aktif      = db.execute("SELECT COUNT(*) FROM user_accounts WHERE status_aktif=1 AND company=?", (admin_company,)).fetchone()[0]
-            eligible       = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND perusahaan=?", (admin_company,)).fetchone()[0]
-
-            trx_count = db.execute("""
-                SELECT COUNT(*) FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.tanggal >= ? AND t.tanggal < ? AND u.company = ?
-            """, (s_first, s_next, admin_company)).fetchone()[0]
-
-            trx_sum = db.execute("""
-                SELECT COALESCE(SUM(t.nominal),0) FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.status='sukses' AND t.tanggal >= ? AND t.tanggal < ? AND u.company = ?
-            """, (s_first, s_next, admin_company)).fetchone()[0]
-
-            unique_borrowers = db.execute("""
-                SELECT COUNT(DISTINCT t.user_id) FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.tanggal >= ? AND t.tanggal < ? AND t.status IN ('sukses','on-proses') AND u.company = ?
-            """, (s_first, s_next, admin_company)).fetchone()[0]
-
-            not_borrowed = max(total_register - unique_borrowers, 0)
-
-            row_fee = db.execute("""
-                SELECT
-                  COALESCE(SUM(CASE WHEN t.product='reg' THEN t.admin_fee END), 0) AS fee_reg,
-                  COALESCE(SUM(CASE WHEN t.product='urg' THEN t.admin_fee END), 0) AS fee_urg
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.periode = ? AND t.status IN ('sukses', 'on-proses') AND u.company = ?
-            """, (periode_key, admin_company)).fetchone()
-
-            admin_fee_reg_total  = int(row_fee["fee_reg"] or 0)
-            admin_fee_urg_total  = int(row_fee["fee_urg"] or 0)
-            admin_fee_total      = admin_fee_reg_total + admin_fee_urg_total
-
-            pending_count = db.execute("""
+            pending_count = db.execute(f"""
                 SELECT COUNT(*) 
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                JOIN pegawai p ON p.id = u.pegawai_id
-                WHERE t.status = 'on-proses' AND p.perusahaan = ?
-            """, (admin_company,)).fetchone()[0]
+                FROM transactions t 
+                JOIN users u ON u.id = t.user_id 
+                JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE LOWER(TRIM(t.status)) = 'on-proses' AND {where_clause}
+            """, where_params).fetchone()[0]
 
-            pending_reg = db.execute("""
-                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee,
-                       p.id_pegawai, u.name AS nama, u.company AS perusahaan, 
-                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
-                       p.no_telp, p.jabatan
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                LEFT JOIN pegawai p ON p.id = u.pegawai_id
-                WHERE t.status='on-proses' AND t.product='reg' AND u.company = ?
+            pending_reg = db.execute(f"""
+                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee, 
+                       p.id_pegawai, u.name AS nama, p.perusahaan AS perusahaan, 
+                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening, 
+                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label, 
+                       p.no_telp, p.jabatan 
+                FROM transactions t 
+                JOIN users u ON u.id = t.user_id 
+                JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE LOWER(TRIM(t.status)) = 'on-proses' AND LOWER(TRIM(t.product)) = 'reg' AND {where_clause} 
                 ORDER BY t.created_at ASC, t.id ASC
-            """, (admin_company,)).fetchall()
+            """, where_params).fetchall()
 
-            pending_urg = db.execute("""
-                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee,
-                       p.id_pegawai, u.name AS nama, u.company AS perusahaan, 
-                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
-                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
-                       p.no_telp, p.jabatan
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                LEFT JOIN pegawai p ON p.id = u.pegawai_id
-                WHERE t.status='on-proses' AND t.product='urg' AND u.company = ?
+            pending_urg = db.execute(f"""
+                SELECT t.id, t.created_at, t.tanggal, t.nominal, t.status, t.product, t.admin_fee, 
+                       p.id_pegawai, u.name AS nama, p.perusahaan AS perusahaan, 
+                       COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening, 
+                       COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label, 
+                       p.no_telp, p.jabatan 
+                FROM transactions t 
+                JOIN users u ON u.id = t.user_id 
+                JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE LOWER(TRIM(t.status)) = 'on-proses' AND LOWER(TRIM(t.product)) = 'urg' AND {where_clause} 
                 ORDER BY t.created_at ASC, t.id ASC
-            """, (admin_company,)).fetchall()
+            """, where_params).fetchall()
 
-            cycle_a = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='A' AND perusahaan=?", (admin_company,)).fetchone()[0]
-            cycle_b = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='B' AND perusahaan=?", (admin_company,)).fetchone()[0]
-            cycle_c = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='C' AND perusahaan=?", (admin_company,)).fetchone()[0]
-            cycle_d = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=1 AND COALESCE(siklus_gaji,'A')='D' AND perusahaan=?", (admin_company,)).fetchone()[0]
-            inactive_count = db.execute("SELECT COUNT(*) FROM pegawai WHERE status_aktif=0 AND perusahaan=?", (admin_company,)).fetchone()[0]
+            recent = db.execute(f"""
+                SELECT t.tanggal, t.created_at, t.nominal, t.admin_fee, t.status, t.product, 
+                       u.name AS nama, COALESCE(p.id_pegawai, '') AS id_pegawai 
+                FROM transactions t 
+                JOIN users u ON u.id = t.user_id 
+                JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
+                WHERE t.periode = ? AND {where_clause} 
+                ORDER BY t.created_at DESC, t.id DESC LIMIT 100
+            """, [periode_key] + where_params).fetchall()
 
-            chart_data = db.execute("""
-                SELECT substr(t.tanggal, 9, 2) AS hari, SUM(t.nominal) AS total
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.status='sukses' AND t.tanggal >= ? AND t.tanggal < ? AND u.company = ?
-                GROUP BY hari ORDER BY hari
-            """, (s_first, s_next, admin_company)).fetchall()
-            chart_labels = [r["hari"] for r in chart_data]
-            chart_values = [r["total"] for r in chart_data]
+        # 6) DATA KPI SIKLUS GAJI PEGAWAI
+        peg_where_active = f"AND {where_clause}"
+        cycle_a = db.execute(f"SELECT COUNT(*) FROM pegawai p WHERE p.status_aktif=1 AND COALESCE(p.siklus_gaji,'A')='A' {peg_where_active}", where_params).fetchone()[0]
+        cycle_b = db.execute(f"SELECT COUNT(*) FROM pegawai p WHERE p.status_aktif=1 AND COALESCE(p.siklus_gaji,'A')='B' {peg_where_active}", where_params).fetchone()[0]
+        cycle_c = db.execute(f"SELECT COUNT(*) FROM pegawai p WHERE p.status_aktif=1 AND COALESCE(p.siklus_gaji,'A')='C' {peg_where_active}", where_params).fetchone()[0]
+        cycle_d = db.execute(f"SELECT COUNT(*) FROM pegawai p WHERE p.status_aktif=1 AND COALESCE(p.siklus_gaji,'A')='D' {peg_where_active}", where_params).fetchone()[0]
 
-            trend_months = [add_months(trend_start, i).strftime("%Y-%m") for i in range(6)]
-            trend_map = {m: 0 for m in trend_months}
-            trend_rows = db.execute("""
-                SELECT t.periode, COALESCE(SUM(t.nominal),0) AS total
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.status='sukses' AND t.periode >= ? AND u.company = ?
-                GROUP BY t.periode
-            """, (trend_start_key, admin_company)).fetchall()
-            for r in trend_rows:
-                if r["periode"] in trend_map:
-                    trend_map[r["periode"]] = int(r["total"] or 0)
-            trend_labels = trend_months
-            trend_values = [trend_map[m] for m in trend_months]
+        # 7) GRAFIK HARIAN (CHART DATA)
+        if is_super:
+            chart_data = db.execute("SELECT substr(tanggal, 9, 2) AS hari, SUM(nominal) AS total FROM transactions WHERE status='sukses' AND tanggal >= ? AND tanggal < ? GROUP BY hari ORDER BY hari", (s_first, s_next)).fetchall()
+        else:
+            chart_data = db.execute(f"SELECT substr(t.tanggal, 9, 2) AS hari, SUM(t.nominal) AS total FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE t.status='sukses' AND t.tanggal >= ? AND t.tanggal < ? AND {where_clause} GROUP BY hari ORDER BY hari", [s_first, s_next] + where_params).fetchall()
+        chart_labels = [r["hari"] for r in chart_data]
+        chart_values = [r["total"] for r in chart_data]
 
-            cohort_rows = []
-            cohort_activity = db.execute("""
-                SELECT t.user_id, t.periode
-                FROM transactions t
-                JOIN user_accounts u ON u.id = t.user_id
-                WHERE t.status IN ('sukses','on-proses') AND t.periode >= ? AND u.company = ?
-            """, (trend_start_key, admin_company)).fetchall()
-            first_period = {}
-            activity_set = set()
-            for r in cohort_activity:
-                uid = r["user_id"]
-                per = r["periode"]
-                activity_set.add((uid, per))
-                if uid not in first_period or per < first_period[uid]:
-                    first_period[uid] = per
+        # 8) GRAFIK TREN 6 BULAN (TREND DATA)
+        trend_months = [add_months(trend_start, i).strftime("%Y-%m") for i in range(6)]
+        trend_map = {m: 0 for m in trend_months}
+        if is_super:
+            trend_rows = db.execute("SELECT periode, COALESCE(SUM(nominal),0) AS total FROM transactions WHERE status='sukses' AND periode >= ? GROUP BY periode", (trend_start_key,)).fetchall()
+        else:
+            trend_rows = db.execute(f"SELECT t.periode, COALESCE(SUM(t.nominal),0) AS total FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE t.status='sukses' AND t.periode >= ? AND {where_clause} GROUP BY t.periode", [trend_start_key] + where_params).fetchall()
+        for r in trend_rows:
+            if r["periode"] in trend_map:
+                trend_map[r["periode"]] = int(r["total"] or 0)
+        trend_labels = trend_months
+        trend_values = [trend_map[m] for m in trend_months]
 
-            for idx, cohort in enumerate(trend_months[:-1]):
-                users = [u for u, p in first_period.items() if p == cohort]
-                total = len(users)
-                next_month = trend_months[idx + 1]
-                repeat = sum(1 for u in users if (u, next_month) in activity_set)
-                rate = int(round((repeat / total) * 100)) if total else 0
-                cohort_rows.append({
-                    "cohort": cohort,
-                    "total": total,
-                    "repeat": repeat,
-                    "rate": rate
-                })
+        # 9) COHORT ANALYSIS ROWS
+        cohort_rows = []
+        if is_super:
+            cohort_activity = db.execute("SELECT user_id, periode FROM transactions WHERE status IN ('sukses','on-proses') AND periode >= ?", (trend_start_key,)).fetchall()
+        else:
+            cohort_activity = db.execute(f"SELECT t.user_id, t.periode FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE t.status IN ('sukses','on-proses') AND t.periode >= ? AND {where_clause}", [trend_start_key] + where_params).fetchall()
+        
+        first_period = {}
+        activity_set = set()
+        for r in cohort_activity:
+            uid = r["user_id"]
+            per = r["periode"]
+            activity_set.add((uid, per))
+            if uid not in first_period or per < first_period[uid]:
+                first_period[uid] = per
 
-        # Simpan hasil olahan (baik global tersensor maupun per PT) ke dalam Cache
+        for idx, cohort in enumerate(trend_months[:-1]):
+            users = [u for u, p in first_period.items() if p == cohort]
+            total = len(users)
+            next_month = trend_months[idx + 1]
+            repeat = sum(1 for u in users if (u, next_month) in activity_set)
+            rate = int(round((repeat / total) * 100)) if total else 0
+            cohort_rows.append({
+                "cohort": cohort,
+                "total": total,
+                "repeat": repeat,
+                "rate": rate
+            })
+
+        # SIMPAN HASIL KE CACHE
         set_cache(
             cache_key,
             (
-                transactions, total_pegawai, total_register, reg_aktif, eligible,
-                trx_count, trx_sum, unique_borrowers, not_borrowed,
+                transactions, recent, total_pegawai, total_register, reg_aktif, eligible,
+                trx_count, trx_sum, unique_borrowers, not_borrowed, not_registered,
                 admin_fee_reg_total, admin_fee_urg_total, admin_fee_total,
                 pending_count, pending_reg, pending_urg,
                 cycle_a, cycle_b, cycle_c, cycle_d, inactive_count,
@@ -2516,12 +2690,15 @@ def admin_dashboard():
             ttl_seconds=10,
         )
 
-    # 🎉 Kirim data final ke file HTML admin_dashboard.html
+    # 🎉 Kirim data final yang akurat ke file HTML admin_dashboard.html
     return render_template(
         "admin_dashboard.html",
+        recent=recent,
         transactions=transactions,
+        mk=mk,
         total_pegawai=total_pegawai,
         total_register=total_register,
+        not_registered=not_registered,
         reg_aktif=reg_aktif,
         eligible=eligible,
         trx_count=trx_count,
@@ -2847,6 +3024,26 @@ def admin_products():
     flash("Pengaturan produk diperbarui.", "success")
     return redirect(url_for("web.admin_dashboard"))
 
+# ===== Approve/Reject SuperAdmin ======
+@bp.post("/superadmin/tx/<int:txid>/approve")
+def superadmin_tx_approve(txid):
+    ret = require_superadmin()
+    if ret: return ret
+    db = get_db()
+    db.execute("UPDATE transactions SET status='sukses' WHERE id=? AND status='on-proses'", (txid,))
+    db.commit()
+    flash("Transaksi diset sebagai SUKSES.", "success")
+    return redirect(url_for("web.superadmin_dashboard"))
+
+@bp.post("/superadmin/tx/<int:txid>/reject")
+def superadmin_tx_reject(txid):
+    ret = require_superadmin()
+    if ret: return ret
+    db = get_db()
+    db.execute("UPDATE transactions SET status='ditolak' WHERE id=? AND status='on-proses'", (txid,))
+    db.commit()
+    flash("Transaksi ditolak.", "info")
+    return redirect(url_for("web.admin_dashboard"))
 
 # ===== Approve / Reject =====
 @bp.post("/admin/tx/<int:txid>/approve")

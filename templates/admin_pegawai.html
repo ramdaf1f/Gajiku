@@ -165,7 +165,7 @@
           <label><input type="radio" name="siklus_gaji" value="D"><span>D<br><small>26 - 25</small></span></label>
         </div>
       </div>
-<div style="grid-column:span 3"><label>No Telp</label><input id="m_no_telp" name="no_telp" placeholder="opsional"></div>
+<!-- <div style="grid-column:span 3"><label>No Telp</label><input id="m_no_telp" name="no_telp" placeholder="opsional"></div>
 
       <div style="grid-column:span 4">
         <label>Status</label>
@@ -173,20 +173,20 @@
           <option value="1">Aktif</option>
           <option value="0">Non-Aktif</option>
         </select>
-      </div>
+      </div> -->
 
       <div style="grid-column:span 3">
-        <label>Admin Fee Flat</label>
         {% if session.get('is_superadmin') %}
+          <label>Admin Fee Flat</label>
           <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat" style="z-index: 0 !important; pointer-events: auto; opacity: 1;">
             <label><input type="radio" name="admin_fee_flat" value="15000"><span>15.000</span></label>
             <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
           </div>
         {% else %}
-          <div class="cycle-toggle fee-toggle" style="opacity: 0.6; pointer-events: none; z-index: 0 !important;">
+          <!-- <div class="cycle-toggle fee-toggle" style="opacity: 0.6; pointer-events: none; z-index: 0 !important;">
             <label><input type="radio" name="admin_fee_flat" value="15000" checked disabled><span>15.000 (Locked)</span></label>
           </div>
-          <input type="hidden" name="admin_fee_flat" id="m_admin_fee_flat_hidden" value="15000">
+          <input type="hidden" name="admin_fee_flat" id="m_admin_fee_flat_hidden" value="15000"> -->
         {% endif %}
       </div>
       <div class="pegawai-form-actions" style="grid-column:1/-1">
@@ -234,18 +234,18 @@
       </div>
 
       <div style="grid-column:span 2">
-        <label>Admin Fee Flat</label>
         {% if session.get('is_superadmin') %}
+          <label>Admin Fee Flat</label>
           <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat" style="z-index: 0 !important;">
             <label><input type="radio" name="admin_fee_flat" value="15000"><span>15.000</span></label>
             <label><input type="radio" name="admin_fee_flat" value="17000"><span>17.000</span></label>
           </div>
         {% else %}
-          <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat_disabled" style="opacity: 0.6; pointer-events: none; z-index: 0 !important;">
+          <!-- <div class="cycle-toggle fee-toggle" id="m_admin_fee_flat_disabled" style="opacity: 0.6; pointer-events: none; z-index: 0 !important;">
             <label><input type="radio" name="admin_fee_flat" value="15000" disabled><span>15.000</span></label>
             <label><input type="radio" name="admin_fee_flat" value="17000" disabled><span>17.000</span></label>
           </div>
-          <input type="hidden" name="admin_fee_flat" id="m_admin_fee_flat_hidden" value="15000">
+          <input type="hidden" name="admin_fee_flat" id="m_admin_fee_flat_hidden" value="15000"> -->
         {% endif %}
       </div>
     </form>

@@ -15,7 +15,7 @@ def get_db():
             check_same_thread=False,
         )
         g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys=ON;")
+        g.db.execute("PRAGMA foreign_keys=OFF;")
         g.db.execute("PRAGMA journal_mode=WAL;")
         g.db.execute("PRAGMA synchronous=NORMAL;")
         g.db.execute("PRAGMA busy_timeout=30000;")
@@ -388,13 +388,8 @@ def _migrate_users_email_unique(db):
             pass
 
         db.commit()
-        db.execute("PRAGMA foreign_keys=ON;")
     except Exception as e:
         db.rollback()
-        try:
-            db.execute("PRAGMA foreign_keys=ON;")
-        except Exception:
-            pass
         print(f"[DB] users migration skipped: {e}")
 
 
@@ -454,7 +449,7 @@ def _fix_transactions_fk_users_old(db):
         if cols_copy:
             cols_csv = ",".join(cols_copy)
             db.execute(
-                f"INSERT INTO transactions ({cols_csv}) SELECT {cols_csv} FROM transactions_old"
+                f"INSERT INTO transactions ({cols_csv}) SELECT {cols_csv} FROM transactions_old WHERE user_id IN (SELECT id FROM users)"
             )
 
         db.execute("DROP TABLE transactions_old;")
@@ -473,12 +468,7 @@ def _fix_transactions_fk_users_old(db):
             pass
 
         db.commit()
-        db.execute("PRAGMA foreign_keys=ON;")
         print("[DB] transaksi FK users_old diperbaiki.")
     except Exception as e:
         db.rollback()
-        try:
-            db.execute("PRAGMA foreign_keys=ON;")
-        except Exception:
-            pass
         print(f"[DB] perbaikan FK transactions gagal: {e}")

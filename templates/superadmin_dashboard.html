@@ -233,7 +233,7 @@
           <td>{{ t['no_telp'] or '-' }}</td>
           <td>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <form method="post" action="{{ url_for('web.admin_tx_approve', txid=t['id']) }}">
+              <form method="post" action="{{ url_for('web.superadmin_tx_approve', txid=t['id']) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-sm btn-alert">Approve</button>
               </form>
