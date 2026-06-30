@@ -1,6 +1,6 @@
 import os
-# 🔥 UBAH BARIS INI: Beri tahu Python untuk mengambil dari folder 'app', bukan file 'app.py'
-from app.__init__ import create_app
+# Kembalikan ke import normal yang bersih
+from app import create_app
 
 app = create_app()
 
