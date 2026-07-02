@@ -162,8 +162,7 @@
                     <span class="countdown-expired muted" {% if remaining > 0 %}style="display:none"{% endif %}>Bisa dibatalkan</span>
                   </form>
                 {% elif r['status'] == 'sukses' %}
-                  <button class="btn btn-outline btn-sm btn-cancel-approved" type="button" disabled>Sudah</button>
-                  <span class="muted approved-note">Disetujui</span>
+                  <button class="btn btn-outline btn-sm btn-cancel-approved" type="button" disabled>Sudah Disetujui</button>
                 {% else %}
                   <span class="muted">-</span>
                 {% endif %}

@@ -8,16 +8,29 @@
     <h1>Riwayat Transaksi</h1>
     <p class="muted">Default: transaksi 6 bulan terakhir.</p>
   </div>
-  <a class="btn btn-outline btn-sm" href="{{ url_for('web.admin_dashboard') }}">Dashboard</a>
+  <a class="btn btn-outline btn-sm" href="{{ url_for('web.superadmin_dashboard') }}">Dashboard</a>
 </section>
 
 <section class="card glass" style="margin-bottom:12px">
-  <form method="get" action="{{ url_for('web.admin_riwayat') }}"
+  <form method="get" action="{{ request.path }}"
         style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
     <div>
       <label>Cari</label>
       <input type="text" name="q" placeholder="ID pegawai / nama / email / jabatan / perusahaan" value="{{ q or '' }}">
     </div>
+    
+    <div>
+      <label>Perusahaan</label>
+      <select name="company">
+        <option value="">- Semua Perusahaan -</option>
+        {% for c in companies %}
+          {% if c %}
+            <option value="{{ c }}" {{ 'selected' if f_company == c else '' }}>{{ c }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+
     <div>
       <label>Produk</label>
       <select name="product">
@@ -65,7 +78,7 @@
           <th style="width:14%">Perusahaan</th>
           <th style="width:10%">Produk</th>
           <th style="width:11%">Nominal</th>
-          <!-- <th style="width:9%">Admin</th> -->
+          <th style="width:9%">Admin</th>
           <th style="width:9%">Status</th>
           <th style="width:13%">Rekening</th>
           <th style="width:13%">Keterangan</th>
@@ -87,7 +100,7 @@
             {% endif %}
           </td>
           <td>{{ (r['nominal'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
-          <!-- <td>{{ (r['admin_fee'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td> -->
+          <td>{{ (r['admin_fee'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
           <td class="{% if r['status']=='sukses' %}ok{% elif r['status']=='on-proses' %}warn{% else %}bad{% endif %}">
             {% if r['status'] == 'dibatalkan' %}
               cancel
@@ -105,9 +118,10 @@
       </tbody>
     </table>
   </div>
+  
   <div class="muted" style="margin-top:8px;">
-    Total sukses: {{ (total_nom | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}
-    <!-- Admin fee: {{ (total_admin | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }} -->
+    Total sukses: {{ (total_nom | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }} |
+    Admin fee: {{ (total_admin | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}
   </div>
   {% endif %}
 </section>

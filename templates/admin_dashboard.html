@@ -176,7 +176,7 @@
 </section>
 
 <!-- PERMINTAAN REG ON-PROSES -->
-<section class="card glass">
+<!-- <section class="card glass">
   <h3>Permintaan Reg On-Proses</h3>
   {% if not pending_reg %}
     <p class="muted">Tidak ada pengajuan Reg yang menunggu.</p>
@@ -225,7 +225,7 @@
   {% endif %}
 </section>
 
-<!-- PERMINTAAN URG ON-PROSES -->
+PERMINTAAN URG ON-PROSES
 {% if 'urg' in enabled_products %}
   <section class="card glass">
     <h3>Permintaan Urg On-Proses</h3>
@@ -275,7 +275,7 @@
     </div>
     {% endif %}
   </section>
-{% endif %}
+{% endif %} -->
 
 <section class="card glass">
   <button class="collapse-toggle" type="button" data-target="analytics-panel">
@@ -546,7 +546,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
 })();
 </script>
 
-<!-- TRANSAKSI TERBARU -->
+<!-- TRANSAKSI TERBARU
 <section class="card glass">
   {% set mk_year = (mk or '')[:4] %}
   {% set mk_month = (mk or '')[5:7] %}
@@ -600,7 +600,108 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
     </table>
   </div>
   {% endif %}
+</section> -->
+
+<section class="card glass">
+  {% set mk_year = (mk or '')[:4] %}
+  {% set mk_month = (mk or '')[5:7] %}
+  {% set mk_month_name = {
+    '01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'Mei','06':'Jun',
+    '07':'Jul','08':'Agu','09':'Sep','10':'Okt','11':'Nov','12':'Des'
+  }.get(mk_month, mk_month) %}
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <h3>Transaksi Terbaru ({{ mk_month_name }} {{ mk_year }})</h3>
+  </div>
+
+  {% if not recent %}
+    <p class="muted">Belum ada transaksi bulan ini.</p>
+  {% else %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Waktu</th>
+          <th>ID Pegawai</th>
+          <th>Nama</th>
+          <th>Perusahaan</th>
+          <th>Produk</th>
+          <th>Nominal</th>
+          <!-- <th>Admin Fee</th> -->
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {# loop.index0 digunakan untuk menghitung baris dari angka 0 #}
+        {% for r in recent %}
+        <tr class="tx-row" data-index="{{ loop.index0 }}" {% if loop.index0 >= 15 %}style="display: none;"{% endif %}>
+          <td class="admin-time" data-ts="{{ r['created_at'] or r['tanggal'] }}"></td>
+          <td>{{ r['id_pegawai'] or '-' }}</td>
+          <td>{{ r['nama'] }}</td>
+          <td>{{ r['company'] or '-' }}</td>
+          <td>
+            {% if r['product']=='urg' %}
+              <span class="badge badge-urg">URG</span>
+            {% else %}
+              <span class="badge badge-reg">REG</span>
+            {% endif %}
+          </td>
+          <td>{{ (r['nominal'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
+          <!-- <td>{{ (r['admin_fee'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td> -->
+          <td class="{% if r['status']=='sukses' %}ok{% elif r['status']=='on-proses' %}warn{% else %}bad{% endif %}">
+            {% if r['status'] == 'dibatalkan' %}
+              cancel
+            {% else %}
+              {{ r['status'] }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if recent|length > 15 %}
+  <div style="text-align: center; margin-top: 16px;">
+    <button id="btnLoadMore" class="btn btn-outline btn-sm" style="padding: 8px 16px; cursor: pointer;">
+      Transaksi Sebelumnya
+    </button>
+  </div>
+  {% endif %}
+
+  {% endif %}
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const btnLoadMore = document.getElementById('btnLoadMore');
+  if (!btnLoadMore) return;
+
+  let currentVisibleCount = 15;
+  const increment = 15;
+  const rows = document.querySelectorAll('.tx-row');
+  const totalRows = rows.length;
+
+  btnLoadMore.addEventListener('click', () => {
+    // Tentukan batas atas baris yang mau dibuka berikutnya
+    const nextLimit = currentVisibleCount + increment;
+
+    rows.forEach(row => {
+      const idx = parseInt(row.getAttribute('data-index'));
+      // Buka baris yang berada di range target berikutnya
+      if (idx >= currentVisibleCount && idx < nextLimit) {
+        row.style.display = ''; // Menghilangkan display:none
+      }
+    });
+
+    currentVisibleCount = nextLimit;
+
+    // Kalau semua baris (maksimal 50) sudah terbuka, sembunyikan tombolnya
+    if (currentVisibleCount >= totalRows) {
+      btnLoadMore.style.display = 'none';
+    }
+  });
+});
+</script>
 
 <script>
 (function(){
@@ -642,7 +743,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
 
 
 <footer class="muted" style="margin-top:16px;text-align:left">
-  This application was created in 2025
+  This application was created in 2026
 </footer>
 
 {% endblock %}

@@ -1,76 +1,32 @@
 import sqlite3
-import os
 
-def jalankan_migrasi():
-    # Menggunakan nama database live sesuai info dari lu
-    db_path = os.path.join("data", "tarikgaji-live.db")
+def get_db():
+    conn = sqlite3.connect("data/tarikgaji-live.db")
+    conn.row_factory = sqlite3.Row  # Biar bisa dipanggil pake nama kolom
+    return conn
 
-    if not os.path.exists(db_path):
-        print(f"❌ Database tidak ditemukan di path: {db_path}")
-        print("Pastikan lu menjalankan script ini dari root folder proyek lu (tempat folder 'data' berada).")
-        return
-
-    print(f"🔄 Menghubungkan ke database live: {db_path}")
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    try:
-        # 1. Mulai transaksi aman
-        cursor.execute("BEGIN TRANSACTION;")
-
-        print("📦 1. Mengubah nama tabel lama (backup)...")
-        cursor.execute("ALTER TABLE transactions RENAME TO transactions_old;")
-
-        print("🛠️ 2. Membuat tabel transactions baru dengan Foreign Key ke 'users'...")
-        cursor.execute("""
-            CREATE TABLE transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                tanggal TEXT,
-                periode TEXT,
-                nominal INTEGER,
-                admin_fee INTEGER,
-                status TEXT,
-                keterangan TEXT,
-                rekening_tujuan TEXT,
-                rekening_tujuan_label TEXT,
-                created_at TEXT,
-                product TEXT,
-                cancel_until TEXT,
-                urg_lock_until TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            );
-        """)
-
-        print("🚚 3. Memindahkan data transaksi lama ke tabel baru...")
-        cursor.execute("""
-            INSERT INTO transactions (
-                id, user_id, tanggal, periode, nominal, admin_fee, status, 
-                keterangan, rekening_tujuan, rekening_tujuan_label, created_at, 
-                product, cancel_until, urg_lock_until
-            )
-            SELECT 
-                id, user_id, tanggal, periode, nominal, admin_fee, status, 
-                keterangan, rekening_tujuan, rekening_tujuan_label, created_at, 
-                product, cancel_until, urg_lock_until 
-            FROM transactions_old;
-        """)
-
-        print("🗑️ 4. Menghapus tabel backup 'transactions_old'...")
-        cursor.execute("DROP TABLE transactions_old;")
-
-        # Simpan permanen jika semua proses sukses
-        conn.commit()
-        print("✅ MIGRASI BERHASIL! Data live aman dipindahkan dan skema DB sudah diperbaiki.")
-
-    except sqlite3.Error as e:
-        # Batalkan semua perubahan jika di tengah jalan ada error
-        conn.rollback()
-        print(f"❌ GAGAL MIGRASI: {e}")
-        print("⚠️ Database live lu otomatis di-rollback ke kondisi semula. Tidak ada data yang hilang.")
+# ===== SEKARANG KITA TEST PANGGIL & PRINT DI SINI =====
+try:
+    db = get_db()
+    cursor = db.cursor()
     
-    finally:
-        conn.close()
+    # Ambil 1 data admin teratas buat di-test
+    cursor.execute("SELECT * FROM admins LIMIT 1")
+    row = cursor.fetchone()
+    
+    if row:
+        print("--- BERHASIL KONEK DB & AMBIL DATA ---")
+        # 1. Kita print semua key / nama kolom yang terdeteksi
+        print("Nama-nama Kolom di DB:", list(row.keys()))
+        print("-" * 40)
+        
+        # 2. Kita test ambil value kolom 'company' atau nama lain
+        # Kita pakai dict(row) biar kelihatan semua pasangan kolom dan isinya
+        print("Isi Data Mentah:", dict(row))
+    else:
+        print("Konek berhasil, tapi tabel 'admins' lu kosong, bro!")
+        
+    db.close()
 
-if __name__ == "__main__":
-    jalankan_migrasi()
+except Exception as e:
+    print(f"Waduh Error, Bro! Penyebabnya: {e}")

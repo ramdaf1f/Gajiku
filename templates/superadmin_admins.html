@@ -98,7 +98,7 @@
                 <button class="btn btn-outline btn-sm"
                         onclick='openEditModal({
                             id: {{ r["id"] }},
-                            id_admin: "{{ r["id_admin"] or "" }}",
+                            id_admin: "{{ r["id"] or "" }}",
                             name: {{ r["name"]|tojson }},
                             email: {{ r["email"]|tojson }},
                             no_telp: {{ r["no_telp"]|tojson }},
@@ -120,22 +120,24 @@
     <h3 style="margin-top:0">Tambah Admin</h3>
     <form id="addForm" class="pegawai-form" method="post" action="{{ url_for('web.superadmin_admins_add') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div style="grid-column:span 3"><label>ID Admin</label><input name="id_admin" maxlength="16" pattern="[A-Za-z0-9]{1,16}" placeholder="maks. 16 karakter" autocomplete="off" required></div>
-      <div style="grid-column:span 3"><label>Nama</label><input name="nama" required></div>
-      <div style="grid-column:span 3"><label>Email</label><input name="email" type="email" required></div>
-      <div style="grid-column:span 3"><label>No Telp</label><input name="no_telp" placeholder="No Telepon"></div>
+      <div style="grid-column:span 3"><label>ID Admin</label>Auto</div>
+      <div style="grid-column:span 3"><label>Nama</label><input name="nama" placeholder="Nama Lengkap" required></div>
+      <div style="grid-column:span 3"><label>Perusahaan</label><input name="perusahaan" placeholder="Perusahaan" required></div>
+      <div style="grid-column:span 3"><label>Email</label><input name="email" type="email" placeholder="Email@email.com" required></div>
+      <div style="grid-column:span 3"><label>No Telp</label><input name="no_telp" placeholder="No Telepon" required></div>
+      <div style="grid-column:span 3"><label>Password</label><input name="password" type="password" placeholder="Password" required></div>
       
         <div>
         <label>Status</label>
-        <select name="status">
+        <label name="status" disabled>
             <option value="1">Aktif</option>
-            <option value="0">Non-Aktif</option>
-        </select>
+            <!-- <option value="0">Non-Aktif</option> -->
+        </label>
         </div>
 
         <div class="pegawai-form-actions" style="grid-column: 1/-1;">
-        <button type="button" class="btn btn-outline" data-close>Cancel</button>
-        <button type="submit" class="btn">Save</button>
+          <button type="button" class="btn btn-outline" data-close>Cancel</button>
+          <button type="submit" class="btn">Save</button>
         </div>
     </form>
   </div>
@@ -149,10 +151,13 @@
     <form id="editForm" class="pegawai-form" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="pid" id="m_pid">
-      <div style="grid-column:span 3"><label>ID Admin</label><input id="m_id_admin" name="id_admin" maxlength="16" pattern="[A-Za-z0-9]{1,16}" placeholder="maks. 16 karakter" autocomplete="off" required></div>
+      <div style="grid-column:span 3">
+        <label for="m_id_admin">ID Admin</label>
+        <input id="m_id_admin" name="id_admin" disabled>
+      </div>
       <div style="grid-column:span 3"><label>Nama</label><input id="m_nama" name="nama" required></div>
-      <div style="grid-column:span 3"><label>Email</label><input id="m_email" name="email" type="email" required></div>
       <div style="grid-column:span 3"><label>Perusahaan</label><input id="m_perusahaan" name="perusahaan"></div>
+      <div style="grid-column:span 3"><label>Email</label><input id="m_email" name="email" type="email" required></div>
       <div style="grid-column:span 3"><label>No Telp</label><input id="m_no_telp" name="no_telp" placeholder="No Telepon"></div>
       <div style="grid-column:span 2">
         <label>Status</label>

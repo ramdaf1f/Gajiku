@@ -37,19 +37,20 @@
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_settings') }}">Settings</a>
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_admins') }}">Kelola Admin</a>
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_pegawai') }}">Kelola Pegawai</a>
+      <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_riwayat') }}">Riwayat Transaksi</a>
       <button class="btn btn-outline dropdown-link" type="button" id="open-product-modal">Product</button>
-      <form method="post" action="{{ url_for('web.admin_reset_data') }}" onsubmit="return confirm('Hapus data operasional (users & transaksi)?');">
+      <form method="post" action="{{ url_for('web.superadmin_reset_data') }}" onsubmit="return confirm('Hapus data operasional (users & transaksi)?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline dropdown-link" type="submit">Reset Data</button>
       </form>
-      <form method="post" action="{{ url_for('web.admin_reset_all') }}" onsubmit="return confirm('Hapus data operasional dan master pegawai?');">
+      <form method="post" action="{{ url_for('web.superadmin_reset_all') }}" onsubmit="return confirm('Hapus data operasional dan master pegawai?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline dropdown-link" type="submit">Reset Semua</button>
       </form>
       <button class="btn btn-outline dropdown-link" type="button" id="open-export-modal">Export CSV</button>
     </div>
   </details>
-  <form method="post" action="{{ url_for('web.admin_logout') }}">
+  <form method="post" action="{{ url_for('web.superadmin_logout') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn-outline" type="submit">LogOut</button>
   </form>
@@ -152,53 +153,6 @@
   .card.glass{ margin-bottom:16px; }
 </style>
 
-<section class="card glass kpi-wrap">
-  <div class="kpi-grid">
-  <div class="kpi-card"><small>Total Pegawai (master)</small><b>{{ total_pegawai }}</b></div>
-  <div class="kpi-card soft-yellow"><small>Total Tarik Gaji</small><b>{{ (trx_sum | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</b></div>
-  <div class="kpi-card"><small>Register Aktif</small><b>{{ reg_aktif }}</b></div>
-  <div class="kpi-card"><small>Belum Register</small><b>{{ not_registered }}</b></div>
-
-  <!-- Mencolok: jumlah on-proses -->
-  <div class="kpi-card" style="border-color:#ff1744; box-shadow:0 0 0 1px #ff1744 inset;">
-    <small style="color:#ff8a80;font-weight:700;">Permintaan On-Proses</small>
-    <b style="font-size:26px;color:#ff5252; animation: blink 1s infinite;">{{ pending_count }}</b>
-  </div> 
-  <div class="kpi-card"><small>Tidak Aktif</small><b>{{ inactive_count }}</b></div>
-  <div class="kpi-card soft-blue"><small>Pegawai Siklus A</small><b>{{ cycle_a }}</b></div>
-  <div class="kpi-card soft-green"><small>Pegawai Siklus B</small><b>{{ cycle_b }}</b></div>
-  <div class="kpi-card"><small>Pegawai Siklus C</small><b>{{ cycle_c }}</b></div>
-  <div class="kpi-card"><small>Pegawai Siklus D</small><b>{{ cycle_d }}</b></div>
-  <div class="kpi-card"><small>Belum Tarik Gaji</small><b>{{ not_borrowed }}</b></div>
-  <div class="kpi-card"><small>Jumlah Transaksi</small><b>{{ trx_count }}</b></div>
-  <div class="kpi-card">
-    <small>Queue Status ({{ queue_stats.mode }})</small>
-    <b>{{ queue_stats.count if queue_stats.count is not none else '-' }}</b>
-    <div class="kpi-sub">Oldest: {{ (queue_stats.oldest_age_sec or 0) | int }}s</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Admin Fee</div>
-    <div class="kpi-value">{{ ((admin_fee_total or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</div>
-    <div class="kpi-sub">
-      REG: {{ (admin_fee_reg_total or 0) }}
-      &nbsp;•&nbsp;
-      URG: {{ (admin_fee_urg_total or 0) }}
-    </div>    
-  </div>
-</div>
-</section>
-
-<style>
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.45} }
-.btn-alert{ background:linear-gradient(45deg,#ff1744,#d50000)!important; color:#fff!important; border:none!important; box-shadow:0 0 10px rgba(255,0,0,.5); animation:blink 1s infinite }
-.btn-alert:hover{ transform:scale(1.05); box-shadow:0 0 20px rgba(255,0,0,.8) }
-</style>
-
-<section class="card glass">
-  <h3>Grafik Tarik Gaji Bulanan</h3>
-  <canvas id="chartTrx" height="120"></canvas>
-</section>
-
 <!-- PERMINTAAN REG ON-PROSES -->
 <section class="card glass">
   <h3>Permintaan Reg On-Proses</h3>
@@ -237,7 +191,7 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-sm btn-alert">Approve</button>
               </form>
-              <form method="post" action="{{ url_for('web.admin_tx_reject', txid=t['id']) }}" onsubmit="return confirm('Tolak pengajuan ini?');">
+              <form method="post" action="{{ url_for('web.superadmin_tx_reject', txid=t['id']) }}" onsubmit="return confirm('Tolak pengajuan ini?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-outline btn-sm">Tolak</button>
               </form>
@@ -286,11 +240,11 @@
             <td>{{ t['no_telp'] or '-' }}</td>
             <td>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <form method="post" action="{{ url_for('web.admin_tx_approve', txid=t['id']) }}">
+                <form method="post" action="{{ url_for('web.superadmin_tx_approve', txid=t['id']) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-sm btn-alert">Approve</button>
                 </form>
-                <form method="post" action="{{ url_for('web.admin_tx_reject', txid=t['id']) }}" onsubmit="return confirm('Tolak pengajuan ini?');">
+                <form method="post" action="{{ url_for('web.superadmin_tx_reject', txid=t['id']) }}" onsubmit="return confirm('Tolak pengajuan ini?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-outline btn-sm">Tolak</button>
                 </form>
@@ -304,6 +258,55 @@
     {% endif %}
   </section>
 {% endif %}
+
+<section class="card glass kpi-wrap">
+  <div class="kpi-grid">
+  <div class="kpi-card"><small>Total Pegawai (master)</small><b>{{ total_pegawai }}</b></div>
+  <div class="kpi-card soft-yellow"><small>Total Tarik Gaji</small><b>{{ (trx_sum | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</b></div>
+  <div class="kpi-card"><small>Register Aktif</small><b>{{ reg_aktif }}</b></div>
+  <div class="kpi-card"><small>Belum Register</small><b>{{ not_registered }}</b></div>
+
+  <!-- Mencolok: jumlah on-proses -->
+  <div class="kpi-card" style="border-color:#ff1744; box-shadow:0 0 0 1px #ff1744 inset;">
+    <small style="color:#ff8a80;font-weight:700;">Permintaan On-Proses</small>
+    <b style="font-size:26px;color:#ff5252; animation: blink 1s infinite;">{{ pending_count }}</b>
+  </div> 
+  <div class="kpi-card"><small>Tidak Aktif</small><b>{{ inactive_count }}</b></div>
+  <div class="kpi-card soft-blue"><small>Pegawai Siklus A</small><b>{{ cycle_a }}</b></div>
+  <div class="kpi-card soft-green"><small>Pegawai Siklus B</small><b>{{ cycle_b }}</b></div>
+  <div class="kpi-card"><small>Pegawai Siklus C</small><b>{{ cycle_c }}</b></div>
+  <div class="kpi-card"><small>Pegawai Siklus D</small><b>{{ cycle_d }}</b></div>
+  <div class="kpi-card"><small>Belum Tarik Gaji</small><b>{{ not_borrowed }}</b></div>
+  <div class="kpi-card"><small>Jumlah Transaksi</small><b>{{ trx_count }}</b></div>
+  <div class="kpi-card">
+    <small>Queue Status ({{ queue_stats.mode }})</small>
+    <b>{{ queue_stats.count if queue_stats.count is not none else '-' }}</b>
+    <div class="kpi-sub">Oldest: {{ (queue_stats.oldest_age_sec or 0) | int }}s</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Admin Fee</div>
+    <div class="kpi-value">{{ ((admin_fee_total or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</div>
+    <div class="kpi-sub">
+      REG: {{ (admin_fee_reg_total or 0) }}
+      &nbsp;•&nbsp;
+      URG: {{ (admin_fee_urg_total or 0) }}
+    </div>    
+  </div>
+</div>
+</section>
+
+<style>
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.45} }
+.btn-alert{ background:linear-gradient(45deg,#ff1744,#d50000)!important; color:#fff!important; border:none!important; box-shadow:0 0 10px rgba(255,0,0,.5); animation:blink 1s infinite }
+.btn-alert:hover{ transform:scale(1.05); box-shadow:0 0 20px rgba(255,0,0,.8) }
+</style>
+
+<section class="card glass">
+  <h3>Grafik Tarik Gaji Bulanan</h3>
+  <canvas id="chartTrx" height="120"></canvas>
+</section>
+
+
 
 <section class="card glass">
   <button class="collapse-toggle" type="button" data-target="analytics-panel">
@@ -365,7 +368,7 @@
       </div>
       <button class="btn btn-sm" type="submit">Apply</button>
       {% if admin_fee_month %}
-        <a class="btn btn-outline btn-sm" href="{{ url_for('web.admin_dashboard') }}">All</a>
+        <a class="btn btn-outline btn-sm" href="{{ url_for('web.superadmin_dashboard') }}">All</a>
       {% endif %}
     </form>
 
@@ -669,7 +672,6 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
 })();
 </script>
 
-<!-- TRANSAKSI TERBARU -->
 <section class="card glass">
   {% set mk_year = (mk or '')[:4] %}
   {% set mk_month = (mk or '')[5:7] %}
@@ -698,8 +700,9 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
         </tr>
       </thead>
       <tbody>
+        {# loop.index0 digunakan untuk menghitung baris dari angka 0 #}
         {% for r in recent %}
-        <tr>
+        <tr class="tx-row" data-index="{{ loop.index0 }}" {% if loop.index0 >= 15 %}style="display: none;"{% endif %}>
           <td class="admin-time" data-ts="{{ r['created_at'] or r['tanggal'] }}"></td>
           <td>{{ r['id_pegawai'] or '-' }}</td>
           <td>{{ r['nama'] }}</td>
@@ -724,8 +727,49 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
       </tbody>
     </table>
   </div>
+
+  {% if recent|length > 15 %}
+  <div style="text-align: center; margin-top: 16px;">
+    <button id="btnLoadMore" class="btn btn-outline btn-sm" style="padding: 8px 16px; cursor: pointer;">
+      Transaksi Sebelumnya
+    </button>
+  </div>
+  {% endif %}
+
   {% endif %}
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const btnLoadMore = document.getElementById('btnLoadMore');
+  if (!btnLoadMore) return;
+
+  let currentVisibleCount = 15;
+  const increment = 15;
+  const rows = document.querySelectorAll('.tx-row');
+  const totalRows = rows.length;
+
+  btnLoadMore.addEventListener('click', () => {
+    // Tentukan batas atas baris yang mau dibuka berikutnya
+    const nextLimit = currentVisibleCount + increment;
+
+    rows.forEach(row => {
+      const idx = parseInt(row.getAttribute('data-index'));
+      // Buka baris yang berada di range target berikutnya
+      if (idx >= currentVisibleCount && idx < nextLimit) {
+        row.style.display = ''; // Menghilangkan display:none
+      }
+    });
+
+    currentVisibleCount = nextLimit;
+
+    // Kalau semua baris (maksimal 50) sudah terbuka, sembunyikan tombolnya
+    if (currentVisibleCount >= totalRows) {
+      btnLoadMore.style.display = 'none';
+    }
+  });
+});
+</script>
 
 <script>
 (function(){
@@ -772,7 +816,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
       <h3 id="product-modal-title" style="margin:0">Product</h3>
       <button class="btn btn-outline btn-sm" type="button" id="close-product-modal" aria-label="Tutup">x</button>
     </div>
-    <form method="post" action="{{ url_for('web.admin_products') }}" id="product-form" style="margin-top:12px;">
+    <form method="post" action="{{ url_for('web.superadmin_products') }}" id="product-form" style="margin-top:12px;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="product-check">
         <input type="checkbox" name="products" value="reg" {% if 'reg' in enabled_products %}checked{% endif %}>
@@ -802,7 +846,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
       <h3 id="export-modal-title" style="margin:0">Export CSV Custom</h3>
       <button class="btn btn-outline btn-sm" type="button" id="close-export-modal" aria-label="Tutup">x</button>
     </div>
-    <form method="get" action="{{ url_for('web.admin_export_range') }}" class="grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+    <form method="get" action="{{ url_for('web.superadmin_export_range') }}" class="grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
       <div>
         <label>Dari Tanggal</label>
         <input type="date" name="start" required>

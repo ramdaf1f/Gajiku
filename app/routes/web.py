@@ -693,10 +693,10 @@ def dashboard():
            FROM transactions t
            JOIN users u ON u.id = t.user_id
            LEFT JOIN pegawai p ON LOWER(p.email)=LOWER(u.email)
-           WHERE t.user_id=? AND t.periode=?
+           WHERE t.user_id=?
            ORDER BY t.created_at DESC, t.id DESC
-           LIMIT 20""",
-        (user["id"], mk),
+           LIMIT 50""",
+        (user["id"],),
     ).fetchall()
 
     pegawai_info = None
@@ -1120,6 +1120,14 @@ def admin_logout():
     session.pop("is_superadmin", None)
     session.pop("admin_name", None)
     flash("Anda telah logout admin.", "info")
+    return redirect(url_for("web.login"))
+
+@bp.post("/superadmin/logout")
+def superadmin_logout():
+    session.pop("is_admin", None)
+    session.pop("is_superadmin", None)
+    session.pop("admin_name", None)
+    flash("Anda telah logout Superadmin.", "info")
     return redirect(url_for("web.login"))
 
 # --- Admin: Pegawai CRUD ---
@@ -1730,28 +1738,35 @@ def superadmin_admins_add():
     db = get_db()
     
     # Tangkap data dari input form modal tambah
-    name = (request.form.get("name") or "").strip()
+    name = (request.form.get("nama") or "").strip()
     email = (request.form.get("email") or "").strip().lower()
     password = request.form.get("password") or ""
-    company = (request.form.get("company") or "").strip()
+    company = (request.form.get("perusahaan") or "").strip()
     no_telp = (request.form.get("no_telp") or "").strip()
-    
+    status_aktif = int(request.form.get("status", 1))
+
     if not name or not email or not password:
-        flash("Semua field wajib diisi, bro!", "warning")
+        flash("Semua field wajib diisi!", "warning")
         return redirect(url_for("web.superadmin_admins"))
         
     # Hash password biar aman di database
     pw_hash = generate_password_hash(password)
     
     try:
+        # Tambahkan kolom role dan status_aktif ke dalam query INSERT
         db.execute(
-            "INSERT INTO admins (name, email, password_hash, company, no_telp, created_at) VALUES (?, ?, ?, ?, ?, DATE('now'))",
+            """
+            INSERT INTO admins (name, email, password_hash, company, no_telp, role, status_aktif, created_at) 
+            VALUES (?, ?, ?, ?, ?, 'admin', 1, DATETIME('now', 'localtime'))
+            """,
             (name, email, pw_hash, company, no_telp)
         )
         db.commit()
         flash(f"Admin baru untuk Perusahaan '{company}' berhasil dibuat!", "success")
     except Exception as e:
-        flash(f"Gagal menambah admin (Email mungkin sudah terdaftar): {e}", "danger")
+        # Biar lu gak tebak-tebakan, print error aslinya ke terminal Flask lu
+        print("ERROR ADD ADMIN:", str(e)) 
+        flash(f"Gagal menambah admin: {e}", "danger")
         
     return redirect(url_for("web.superadmin_admins"))
 
@@ -2023,10 +2038,9 @@ def superadmin_dashboard():
         FROM transactions t
         JOIN users u ON u.id = t.user_id
         LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
-        WHERE t.periode = ?  -- 1 tanda tanya murni untuk mengunci bulan berjalan global
         ORDER BY t.created_at DESC, t.id DESC
         LIMIT 100
-    """, (periode_key,)).fetchall() # 🟢 Kasih 1 parameter saja (Jangan lupa koma di ujung tuple-nya!)
+    """,).fetchall() # 🟢 Kasih 1 parameter saja (Jangan lupa koma di ujung tuple-nya!)
 
     # --- Antrian on-proses REG & URG (jangan pakai periode—ambil yang benar2 on-proses)
     # pending_reg = db.execute("""
@@ -2148,6 +2162,36 @@ def admin_riwayat():
     if ret:
         return ret
 
+    db = get_db()
+
+    # 🏢 AMBIL DATA DARI SESSION (Sekarang udah disamain persis kuncinya, bro!)
+    admin_company = session.get("company") # 🟢 Pakai "company", bukan "admin_company"
+    admin_email = session.get("admin_email", "").lower() or session.get("email", "").lower()
+    
+    # 💡 DETEKSI ROLE (Copas rumus sakti dari dashboard lu)
+    is_super = session.get("is_superadmin") or session.get("role") == "superadmin" or admin_email == "admin@example.com"
+    
+    is_parent = False
+    if admin_company and not is_super:
+        parent_check = db.execute("""
+            SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+        if parent_check:
+            is_parent = True
+
+    # Aturan main skope data filter perusahaan (Rumus dashboard)
+    if is_super:
+        where_clause = "1=1"
+        where_params = []
+    elif is_parent:
+        where_clause = "LOWER(TRIM(p.perusahaan_induk)) = ?"
+        where_params = [admin_company.strip().lower()]
+    else:
+        where_clause = "LOWER(TRIM(p.perusahaan)) = ?"
+        where_params = [admin_company.strip().lower()]
+
+    # ... ke bawahnya sama (query SQL pakai JOIN murni + params) ...
+
     q = (request.args.get("q") or "").strip()
     status = (request.args.get("status") or "").strip()
     product = (request.args.get("product") or "").strip()
@@ -2175,22 +2219,24 @@ def admin_riwayat():
     if start_dt > end_dt:
         start_dt, end_dt = end_dt, start_dt
 
-    sql = """
+   # 1. Query Utama (Standar & Bersih)
+    sql = f"""
         SELECT t.id, t.tanggal, t.periode, t.nominal, t.admin_fee, t.status, t.product,
                t.keterangan, t.created_at,
                u.name AS nama, u.email AS email_user,
+               p.perusahaan AS company, 
                COALESCE(p.id_pegawai,'') AS id_pegawai,
-               COALESCE(p.perusahaan,'') AS perusahaan,
                COALESCE(p.jabatan,'') AS jabatan,
                COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
                COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label
         FROM transactions t
         JOIN users u ON u.id = t.user_id
-        LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
-        WHERE t.tanggal >= ? AND t.tanggal <= ?
+        JOIN pegawai p ON LOWER(TRIM(p.email)) = LOWER(TRIM(u.email))
+        WHERE t.tanggal >= ? AND t.tanggal <= ? AND {where_clause}
     """
-    params = [start_dt.isoformat(), end_dt.isoformat()]
+    params = [start_dt.isoformat(), end_dt.isoformat()] + where_params
 
+    # 2. Logic Fitur Pencarian (Gunakan += biar nempel di belakang WHERE utama)
     if q:
         sql += """ AND (
             LOWER(u.name) LIKE ? OR LOWER(u.email) LIKE ?
@@ -2212,7 +2258,7 @@ def admin_riwayat():
 
     sql += " ORDER BY t.tanggal DESC, t.id DESC"
 
-    rows = get_db().execute(sql, params).fetchall()
+    rows = db.execute(sql, params).fetchall()
 
     total_nom = sum(int(r["nominal"] or 0) for r in rows if r["status"] == "sukses")
     total_admin = sum(int(r["admin_fee"] or 0) for r in rows if r["status"] == "sukses")
@@ -2298,10 +2344,11 @@ def admin_export():
     )
 
 
-@bp.get("/admin/export_range")
-def admin_export_range():
-    ret = require_admin()
-    if ret: return ret
+@bp.get("/superadmin/export_range")
+def superadmin_export_range():
+    ret = require_superadmin()
+    if ret:
+        return ret
 
     start_raw = (request.args.get("start") or "").strip()
     end_raw = (request.args.get("end") or "").strip()
@@ -2312,11 +2359,11 @@ def admin_export_range():
         end_dt = datetime.strptime(end_raw, "%Y-%m-%d").date()
     except Exception:
         flash("Tanggal awal/akhir tidak valid. Gunakan format YYYY-MM-DD.", "error")
-        return redirect(url_for("web.admin_dashboard"))
+        return redirect(url_for("web.superadmin_dashboard"))
 
     if start_dt > end_dt:
         flash("Tanggal awal tidak boleh lebih besar dari tanggal akhir.", "error")
-        return redirect(url_for("web.admin_dashboard"))
+        return redirect(url_for("web.superadmin_dashboard"))
 
     if siklus not in (*VALID_SIKLUS, "ALL"):
         siklus = "ALL"
@@ -2332,10 +2379,10 @@ def admin_export_range():
                COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label,
                COALESCE(p.siklus_gaji,'A') AS siklus,
                t.product, t.nominal, t.admin_fee, t.status, t.keterangan, t.created_at
-      FROM transactions t
-      JOIN users u         ON u.id = t.user_id
-      LEFT JOIN pegawai p  ON LOWER(p.email) = LOWER(u.email)
-      WHERE t.tanggal >= ? AND t.tanggal <= ?
+          FROM transactions t
+          JOIN users u         ON u.id = t.user_id
+          LEFT JOIN pegawai p  ON LOWER(p.email) = LOWER(u.email)
+          WHERE t.tanggal >= ? AND t.tanggal <= ?
     """
     params = [start_dt.isoformat(), end_dt.isoformat()]
 
@@ -2571,9 +2618,8 @@ def admin_dashboard():
                 FROM transactions t 
                 JOIN users u ON u.id = t.user_id 
                 LEFT JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
-                WHERE t.periode = ? 
                 ORDER BY t.created_at DESC, t.id DESC LIMIT 100
-            """, (periode_key,)).fetchall()
+            """,).fetchall()
         else:
             pending_count = db.execute(f"""
                 SELECT COUNT(*) 
@@ -2611,13 +2657,13 @@ def admin_dashboard():
 
             recent = db.execute(f"""
                 SELECT t.tanggal, t.created_at, t.nominal, t.admin_fee, t.status, t.product, 
-                       u.name AS nama, COALESCE(p.id_pegawai, '') AS id_pegawai 
+                       u.name AS nama, p.perusahaan AS company, COALESCE(p.id_pegawai, '') AS id_pegawai 
                 FROM transactions t 
                 JOIN users u ON u.id = t.user_id 
                 JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) 
-                WHERE t.periode = ? AND {where_clause} 
+                WHERE {where_clause} 
                 ORDER BY t.created_at DESC, t.id DESC LIMIT 100
-            """, [periode_key] + where_params).fetchall()
+            """, where_params).fetchall()
 
         # 6) DATA KPI SIKLUS GAJI PEGAWAI
         peg_where_active = f"AND {where_clause}"
@@ -2821,7 +2867,7 @@ def superadmin_settings():
 
     if not adm:
         flash("Data admin belum ada. Inisialisasi gagal.", "error")
-        return redirect(url_for("web.admin_dashboard"))
+        return redirect(url_for("web.superadmin_dashboard"))
 
     def settings_context():
         return {
@@ -2872,8 +2918,8 @@ def superadmin_settings():
         db.execute("UPDATE admins SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), adm["id"]))
         db.commit()
 
-        flash("Password admin berhasil diperbarui. Mulai sekarang Anda bisa login menggunakan kredensial DB.", "success")
-        return redirect(url_for("web.admin_dashboard"))
+        flash("Password SuperAdmin berhasil diperbarui. Mulai sekarang Anda bisa login menggunakan kredensial DB.", "success")
+        return redirect(url_for("web.superadmin_dashboard"))
 
     return render_template("superadmin_settings.html", **settings_context())
 
@@ -2936,17 +2982,20 @@ def superadmin_edit_admin(admin_id):
     if not session.get("is_superadmin"):
         return "Akses Ditolak", 403
         
-    name = (request.form.get("name") or "").strip()
+    name = (request.form.get("nama") or "").strip()
     email = (request.form.get("email") or "").strip().lower()
-    company = (request.form.get("company") or "").strip()
-    no_telp = (request.form.get("no_telp") or "").strip() # 💡 Tangkap input no telp baru
+    company = (request.form.get("perusahaan") or "").strip()
+    no_telp = (request.form.get("no_telp") or "").strip()
+    
+    # 💡 Tangkap input status dari select HTML, paksa jadi integer (0 atau 1)
+    status_aktif = int(request.form.get("status", 1)) 
     
     db = get_db()
     try:
-        # 💡 Tambahkan no_telp ke query UPDATE
+        # 💡 Tambahkan status_aktif=? ke dalam query UPDATE
         db.execute(
-            "UPDATE admins SET name=?, email=?, company=?, no_telp=? WHERE id=?",
-            (name, email, company, no_telp, admin_id)
+            "UPDATE admins SET name=?, email=?, company=?, no_telp=?, status_aktif=? WHERE id=?",
+            (name, email, company, no_telp, status_aktif, admin_id)
         )
         db.commit()
         flash("Data admin berhasil diperbarui!", "success")
@@ -2969,7 +3018,139 @@ def superadmin_delete_admin(admin_id):
     flash("Akun admin sukses dihapus selamanya!", "success")
     return redirect(url_for("web.superadmin_admins"))
 
+@bp.get("/superadmin/riwayat")
+def superadmin_riwayat():
+    if not session.get("is_superadmin"):
+        return "Akses Ditolak", 403
 
+    db = get_db()
+
+    # 1. Ambil data Identitas & Set Rule Global Superadmin (1=1)
+    admin_company = session.get("company")
+    admin_email = session.get("admin_email", "").lower() or session.get("email", "").lower()
+    is_super = session.get("is_superadmin") or session.get("role") == "superadmin" or admin_email == "admin@example.com"
+
+    where_clause = "1=1"
+    where_params = []
+
+    # 2. Tangkap semua arguments dari filter form HTML
+    q = (request.args.get("q") or "").strip()
+    f_company = (request.args.get("company") or "").strip() 
+    status = (request.args.get("status") or "").strip()
+    product = (request.args.get("product") or "").strip()
+    start_raw = (request.args.get("start") or "").strip()
+    end_raw = (request.args.get("end") or "").strip()
+
+    # 3. Handle penanggalan (Parsing Date) -> INI HARUS DI ATAS QUERY UTAMA
+    today = date.today()
+    default_start = add_months(date(today.year, today.month, 1), -5)
+    default_end = today
+
+    def parse_date(raw, fallback):
+        if not raw:
+            return fallback
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    start_dt = parse_date(start_raw, default_start)
+    end_dt = parse_date(end_raw, default_end)
+    
+    if start_dt is None or end_dt is None:
+        flash("Tanggal filter tidak valid. Gunakan format YYYY-MM-DD.", "error")
+        start_dt, end_dt = default_start, default_end
+
+    if start_dt > end_dt:
+        start_dt, end_dt = end_dt, start_dt
+
+    # 4. Bangun Query Utama SQL (start_dt dan end_dt aman digunakan di sini)
+    sql = f"""
+        SELECT t.id, t.tanggal, t.periode, t.nominal, t.admin_fee, t.status, t.product,
+               t.keterangan, t.created_at,
+               u.name AS nama, u.email AS email_user,
+               COALESCE(p.perusahaan, '-') AS company, 
+               COALESCE(p.id_pegawai,'') AS id_pegawai,
+               COALESCE(p.jabatan,'') AS jabatan,
+               COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '') AS no_rekening,
+               COALESCE(NULLIF(t.rekening_tujuan_label,''), 'No_Rek Bank') AS rekening_tujuan_label
+        FROM transactions t
+        JOIN users u ON u.id = t.user_id
+        LEFT JOIN pegawai p ON LOWER(TRIM(p.email)) = LOWER(TRIM(u.email))
+        WHERE t.tanggal >= ? AND t.tanggal <= ? AND {where_clause}
+    """
+    params = [start_dt.isoformat(), end_dt.isoformat()] + where_params
+
+    # 5. Pasang dynamic filter tambahan (Dropdown f_company, q pencarian, dll)
+    if f_company:
+        sql += " AND LOWER(TRIM(p.perusahaan)) = ?"
+        params.append(f_company.lower())
+
+    if q:
+        sql += """ AND (
+            LOWER(u.name) LIKE ? OR LOWER(u.email) LIKE ?
+            OR LOWER(COALESCE(p.id_pegawai,'')) LIKE ?
+            OR LOWER(COALESCE(p.perusahaan,'')) LIKE ?
+            OR LOWER(COALESCE(p.jabatan,'')) LIKE ?
+            OR LOWER(COALESCE(NULLIF(t.rekening_tujuan,''), p.no_rekening, '')) LIKE ?
+        )"""
+        q_like = f"%{q.lower()}%"
+        params.extend([q_like, q_like, q_like, q_like, q_like, q_like])
+
+    if status:
+        sql += " AND t.status = ?"
+        params.append(status)
+
+    if product:
+        sql += " AND t.product = ?"
+        params.append(product)
+
+    sql += " ORDER BY t.tanggal DESC, t.id DESC"
+
+    # 6. Jalankan Logic List Companies Pilihan Lu
+    if is_super:
+        company_rows = db.execute("""
+            SELECT DISTINCT LOWER(TRIM(perusahaan)) FROM pegawai 
+            WHERE perusahaan IS NOT NULL AND TRIM(perusahaan) <> ''
+        """).fetchall()
+        companies = sorted(list(set([r[0].title() for r in company_rows])))
+    elif admin_company:
+        is_parent = db.execute("""
+            SELECT 1 FROM pegawai 
+            WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
+        """, (admin_company,)).fetchone()
+
+        if is_parent:
+            company_rows = db.execute("""
+                SELECT DISTINCT LOWER(TRIM(perusahaan)) FROM pegawai 
+                WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?))
+                  AND perusahaan IS NOT NULL AND TRIM(perusahaan) <> ''
+            """, (admin_company,)).fetchall()
+            companies = sorted(list(set([r[0].title() for r in company_rows])))
+        else:
+            companies = [admin_company.strip().title()]
+    else:
+        companies = []
+
+    # 7. Eksekusi data ke Database
+    rows = db.execute(sql, params).fetchall()
+
+    total_nom = sum(int(r["nominal"] or 0) for r in rows if r["status"] == "sukses")
+    total_admin = sum(int(r["admin_fee"] or 0) for r in rows if r["status"] == "sukses")
+
+    return render_template(
+        "superadmin_riwayat.html",
+        rows=rows,
+        companies=companies,       
+        f_company=f_company,       
+        q=q,
+        status=status,
+        product=product,
+        start=start_dt.isoformat(),
+        end=end_dt.isoformat(),
+        total_nom=total_nom,
+        total_admin=total_admin,
+    )
 
 # =========================================================
 # ==================== ADMIN RESET ========================
@@ -3006,6 +3187,38 @@ def admin_reset_all():
     return redirect(url_for("web.admin_dashboard"))
 
 
+@bp.post("/superadmin/reset")
+def superadmin_reset_data():
+    ret = require_superadmin()
+    if ret:
+        return ret
+
+    db = get_db()
+    db.execute("DELETE FROM transactions")
+    db.execute("DELETE FROM users")
+    db.commit()
+    flash("Data operasional (users & transaksi) dibersihkan.", "info")
+    return redirect(url_for("web.superadmin_dashboard"))
+
+
+@bp.post("/superadmin/reset_all")
+def superadmin_reset_all():
+    ret = require_superadmin()
+    if ret:
+        return ret
+
+    db = get_db()
+    db.execute("DELETE FROM transactions")
+    db.execute("DELETE FROM users")
+    db.execute("DELETE FROM user_accounts")
+    db.execute("CREATE TABLE IF NOT EXISTS pegawai_archive (pegawai_id INTEGER, snapshot TEXT, deleted_at TEXT)")
+    db.execute("DELETE FROM pegawai_archive")
+    db.execute("DELETE FROM pegawai")
+    db.commit()
+    flash("Data operasional dan master pegawai dibersihkan.", "info")
+    return redirect(url_for("web.superadmin_dashboard"))
+
+
 @bp.post("/admin/products")
 def admin_products():
     ret = require_admin()
@@ -3023,6 +3236,24 @@ def admin_products():
     set_ppn_enabled(ppn_enabled)
     flash("Pengaturan produk diperbarui.", "success")
     return redirect(url_for("web.admin_dashboard"))
+
+@bp.post("/superadmin/products")
+def superadmin_products():
+    ret = require_superadmin()
+    if ret:
+        return ret
+
+    enabled = request.form.getlist("products")
+    enabled = [p for p in enabled if p in ("reg", "urg")]
+    if not enabled:
+        flash("Minimal satu produk harus aktif.", "error")
+        return redirect(url_for("web.superadmin_dashboard"))
+
+    ppn_enabled = "1" in request.form.getlist("ppn_enabled")
+    set_enabled_products(enabled)
+    set_ppn_enabled(ppn_enabled)
+    flash("Pengaturan produk diperbarui.", "success")
+    return redirect(url_for("web.superadmin_dashboard"))
 
 # ===== Approve/Reject SuperAdmin ======
 @bp.post("/superadmin/tx/<int:txid>/approve")
@@ -3043,7 +3274,7 @@ def superadmin_tx_reject(txid):
     db.execute("UPDATE transactions SET status='ditolak' WHERE id=? AND status='on-proses'", (txid,))
     db.commit()
     flash("Transaksi ditolak.", "info")
-    return redirect(url_for("web.admin_dashboard"))
+    return redirect(url_for("web.superadmin_dashboard"))
 
 # ===== Approve / Reject =====
 @bp.post("/admin/tx/<int:txid>/approve")

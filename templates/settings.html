@@ -17,8 +17,8 @@
     <input type="password" name="new_password2" minlength="6" required>
 
     <div class="form-actions">
+      <button class="btn btn-outline" type="button" onclick="window.location.href='{{ url_for('web.dashboard') }}'">Kembali</button>
       <button class="btn" type="submit">Simpan</button>
-      <button class="btn" type="button" onclick="window.location.href='{{ url_for('web.dashboard') }}'">Kembali</button>
     </div>
   </form>
 </section>
