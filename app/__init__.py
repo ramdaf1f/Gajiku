@@ -22,7 +22,7 @@ def _runtime_enabled() -> bool:
 def _runtime_forced() -> bool:
     try:
         row = get_db().execute(
-            "SELECT value FROM app_settings WHERE key='runtime_force_limit' LIMIT 1"
+            "SELECT value FROM app_settings WHERE `key`='runtime_force_limit' LIMIT 1"
         ).fetchone()
         if not row:
             return False

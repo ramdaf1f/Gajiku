@@ -20,9 +20,9 @@
         <input id="avatar-file-user" name="avatar" type="file" accept="image/*" style="display:none">
       </form>
       <div>
-        <h1>Dashboard</h1>
+        <h1>Dashboard - {{ account_name }}</h1>
         <div class="muted dashboard-meta" style="margin-top:-6px">
-      {{ account_name }} <br> Tgl
+      {{ account_company }}<br> Tgl
       <span id="dash-date" data-date="{{ at_date.isoformat() }}"></span>
       <span class="clock-divider">|</span>
       <span class="clock" aria-label="Waktu saat ini">
@@ -135,7 +135,7 @@
         <tbody>
           {% for r in rows %}
             <tr>
-              <td>{{ r['tanggal'][8:10] }}</td>
+              <td>{{ r['tanggal'].strftime("%d") if r['tanggal'] is not none else '' }}</td>
               <td>{{ (r['nominal'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
               <td>{{ (r['admin_fee'] | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</td>
               <td>

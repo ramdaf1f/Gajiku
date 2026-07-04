@@ -40,3 +40,8 @@ tmp/
 .DS_Store
 Thumbs.db
 
+# SSH Key Biznet Gio
+*.pem
+*.key
+
+

@@ -3,3 +3,5 @@ gunicorn
 redis
 rq
 pytest
+mysql-connector-python
+python-dotenv

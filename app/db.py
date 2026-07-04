@@ -5,20 +5,86 @@ from datetime import datetime
 from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
+try:
+    import mysql.connector
+except ImportError:
+    mysql = None
+
+
+class MySQLConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self, *args, **kwargs):
+        kwargs.setdefault("dictionary", True)
+        return self._conn.cursor(*args, **kwargs)
+
+    def execute(self, sql, params=None):
+        sql = sql.replace("?", "%s")
+        cursor = self.cursor()
+        if params is None:
+            cursor.execute(sql)
+        else:
+            cursor.execute(sql, params)
+        return cursor
+
+    def executemany(self, sql, seq):
+        sql = sql.replace("?", "%s")
+        cursor = self.cursor()
+        cursor.executemany(sql, seq)
+        return cursor
+
+    def executescript(self, script):
+        statements = [s.strip() for s in script.split(";") if s.strip()]
+        cursor = self.cursor()
+        for stmt in statements:
+            cursor.execute(stmt)
+        return cursor
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
 
 def get_db():
+    """Get database connection (SQLite atau MySQL)"""
     if "db" not in g:
-        g.db = sqlite3.connect(
-            current_app.config["DB_PATH"],
-            detect_types=sqlite3.PARSE_DECLTYPES,
-            timeout=30.0,
-            check_same_thread=False,
-        )
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys=OFF;")
-        g.db.execute("PRAGMA journal_mode=WAL;")
-        g.db.execute("PRAGMA synchronous=NORMAL;")
-        g.db.execute("PRAGMA busy_timeout=30000;")
+        db_type = current_app.config.get("DB_TYPE", "mysql")
+        
+        if db_type == "sqlite":
+            g.db = sqlite3.connect(
+                current_app.config["DB_PATH"],
+                detect_types=sqlite3.PARSE_DECLTYPES,
+                timeout=30.0,
+                check_same_thread=False,
+            )
+            g.db.row_factory = sqlite3.Row
+            g.db.execute("PRAGMA foreign_keys=OFF;")
+            g.db.execute("PRAGMA journal_mode=WAL;")
+            g.db.execute("PRAGMA synchronous=NORMAL;")
+            g.db.execute("PRAGMA busy_timeout=30000;")
+        else:  # MySQL
+            if not mysql:
+                raise ImportError("mysql-connector-python is required for MySQL backend")
+            
+            mysql_conn = mysql.connector.connect(
+                host=current_app.config["MYSQL_HOST"],
+                user=current_app.config["MYSQL_USER"],
+                password=current_app.config["MYSQL_PASS"],
+                database=current_app.config["MYSQL_DB"],
+                port=current_app.config["MYSQL_PORT"],
+                autocommit=False,
+            )
+            g.db = MySQLConnectionWrapper(mysql_conn)
+    
     return g.db
 
 
@@ -30,15 +96,18 @@ def close_db(exc=None):
 
 def init_db():
     db = get_db()
-    db.executescript("""
-        -- AKUN MODE PROYEK (lama): tetap dipakai untuk simulasi gaji langsung
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            gaji INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
-        );
+    db_type = current_app.config.get("DB_TYPE", "mysql")
+
+    if db_type == "sqlite":
+        db.executescript("""
+            -- AKUN MODE PROYEK (lama): tetap dipakai untuk simulasi gaji langsung
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE,
+                gaji INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
 
         -- Tambahkan kolom 'product' & 'cancel_until' bila belum ada
         CREATE TABLE IF NOT EXISTS transactions (
@@ -317,21 +386,28 @@ def init_db():
 
 
 def ensure_db():
-    db_path = current_app.config["DB_PATH"]
-    db_dir = os.path.dirname(os.path.abspath(db_path))
-    
-    # 🔥 FIX UNTUK VERCEL: Cek apakah aplikasi berjalan di Vercel
-    if os.environ.get("VERCEL"):
-        # Jika di Vercel, paksa path database pindah ke folder /tmp
-        # Karena hanya folder /tmp yang diizinkan untuk dibaca dan ditulis (Writable)
-        db_path = os.path.join("/tmp", os.path.basename(db_path))
-        current_app.config["DB_PATH"] = db_path
-        # Di Vercel /tmp sudah pasti ada, jadi kita tidak perlu os.makedirs
+    db_type = current_app.config.get("DB_TYPE", "mysql")
+
+    if db_type == "sqlite":
+        db_path = current_app.config["DB_PATH"]
+        db_dir = os.path.dirname(os.path.abspath(db_path))
+
+        # 🔥 FIX UNTUK VERCEL: Cek apakah aplikasi berjalan di Vercel
+        if os.environ.get("VERCEL"):
+            # Jika di Vercel, paksa path database pindah ke folder /tmp
+            # Karena hanya folder /tmp yang diizinkan untuk dibaca dan ditulis (Writable)
+            db_path = os.path.join("/tmp", os.path.basename(db_path))
+            current_app.config["DB_PATH"] = db_path
+            # Di Vercel /tmp sudah pasti ada, jadi kita tidak perlu os.makedirs
+        else:
+            # Jika di lokal laptop lu, tetap buat foldernya seperti biasa
+            os.makedirs(db_dir, exist_ok=True)
+
+        init_db()
     else:
-        # Jika di lokal laptop lu, tetap buat foldernya seperti biasa
-        os.makedirs(db_dir, exist_ok=True)
-        
-    init_db()
+        # MySQL mode: skip SQLite init_db() because schema is managed by MySQL migration
+        db = get_db()
+        db.execute("SELECT 1")
 
 
 def _migrate_users_email_unique(db):

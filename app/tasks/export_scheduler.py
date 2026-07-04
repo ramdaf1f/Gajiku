@@ -28,7 +28,7 @@ def _short_rekening_label(value):
 
 def _get_setting(db, key: str):
     row = db.execute(
-        "SELECT value FROM app_settings WHERE key=? LIMIT 1",
+        "SELECT value FROM app_settings WHERE `key`=? LIMIT 1",
         (key,),
     ).fetchone()
     return row["value"] if row else None
@@ -36,12 +36,12 @@ def _get_setting(db, key: str):
 
 def _set_setting(db, key: str, value: str):
     cur = db.execute(
-        "UPDATE app_settings SET value=? WHERE key=?",
+        "UPDATE app_settings SET value=? WHERE `key`=?",
         (value, key),
     )
     if cur.rowcount == 0:
         db.execute(
-            "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+            "INSERT INTO app_settings (`key`, value) VALUES (?, ?)",
             (key, value),
         )
     db.commit()

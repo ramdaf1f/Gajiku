@@ -21,7 +21,7 @@
         <input id="avatar-file-admin" name="avatar" type="file" accept="image/*" style="display:none">
       </form>
       <div>
-        <h2>Dashboard SuperAdmin</h2>
+        <h2>Dashboard - {{ account_name }}</h2>
         <p class="muted" id="admin-clock">-</p>
       </div>
     </div>
@@ -39,15 +39,20 @@
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.admin_pegawai') }}">Kelola Pegawai</a>
       <a class="btn btn-outline dropdown-link" href="{{ url_for('web.superadmin_riwayat') }}">Riwayat Transaksi</a>
       <button class="btn btn-outline dropdown-link" type="button" id="open-product-modal">Product</button>
-      <form method="post" action="{{ url_for('web.superadmin_reset_data') }}" onsubmit="return confirm('Hapus data operasional (users & transaksi)?');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline dropdown-link" type="submit">Reset Data</button>
-      </form>
-      <form method="post" action="{{ url_for('web.superadmin_reset_all') }}" onsubmit="return confirm('Hapus data operasional dan master pegawai?');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline dropdown-link" type="submit">Reset Semua</button>
-      </form>
       <button class="btn btn-outline dropdown-link" type="button" id="open-export-modal">Export CSV</button>
+      <details class="dropdown nested">
+        <summary class="btn btn-outline dropdown-link">Lainnya</summary>
+        <div class="dropdown-menu nested-menu" aria-hidden="true">
+          <form method="post" action="{{ url_for('web.superadmin_reset_data') }}" onsubmit="return confirm('Hapus data operasional (users & transaksi)?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline dropdown-link" type="submit">Reset Data</button>
+          </form>
+          <form method="post" action="{{ url_for('web.superadmin_reset_all') }}" onsubmit="return confirm('Hapus data operasional dan master pegawai?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline dropdown-link" type="submit">Reset Semua</button>
+          </form>
+        </div>
+      </details>
     </div>
   </details>
   <form method="post" action="{{ url_for('web.superadmin_logout') }}">
@@ -87,6 +92,10 @@
     border-radius:12px; box-shadow:var(--shadow); z-index:50;
   }
   .dropdown:not([open]) .dropdown-menu{display:none}
+  /* nested submenu for 'Lainnya' inside settings */
+  .dropdown.nested { position: relative; }
+  .dropdown.nested .nested-menu{ display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width:160px; }
+  .dropdown.nested[open] .nested-menu{ display:flex; flex-direction:column; gap:6px; padding:10px; background:#0f3b66; border:1px solid #1b4f7a; border-radius:10px; }
   .dropdown-link{
     width:100%;
     text-align:left;
@@ -549,14 +558,30 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
 (function(){
   const dropdown = document.querySelector('.admin-actions .dropdown');
   if(!dropdown) return;
+
+  // collect nested details inside the settings dropdown (e.g. 'Lainnya')
+  const nestedDetails = dropdown.querySelectorAll('details');
+  const closeNested = () => nestedDetails.forEach(d => { if(d.hasAttribute('open')) d.removeAttribute('open'); });
+
   document.addEventListener('click', (e) => {
     if(!dropdown.hasAttribute('open')) return;
     if(dropdown.contains(e.target)) return;
     dropdown.removeAttribute('open');
+    closeNested();
   });
+
   document.addEventListener('keydown', (e) => {
     if(e.key !== 'Escape') return;
-    if(dropdown.hasAttribute('open')) dropdown.removeAttribute('open');
+    if(dropdown.hasAttribute('open')){
+      dropdown.removeAttribute('open');
+      closeNested();
+    }
+  });
+
+  // When the settings <details> toggles (user clicked the summary),
+  // ensure nested details are closed when parent is closed.
+  dropdown.addEventListener('toggle', () => {
+    if(!dropdown.hasAttribute('open')) closeNested();
   });
 })();
 </script>
@@ -693,6 +718,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
           <th>Waktu</th>
           <th>ID Pegawai</th>
           <th>Nama</th>
+          <th>Perusahaan</th>
           <th>Produk</th>
           <th>Nominal</th>
           <th>Admin Fee</th>
@@ -706,6 +732,7 @@ document.querySelectorAll('.collapse-toggle[data-target]').forEach((toggleBtn) =
           <td class="admin-time" data-ts="{{ r['created_at'] or r['tanggal'] }}"></td>
           <td>{{ r['id_pegawai'] or '-' }}</td>
           <td>{{ r['nama'] }}</td>
+          <td>{{ r['company'] or '-' }}</td>
           <td>
             {% if r['product']=='urg' %}
               <span class="badge badge-urg">URG</span>
@@ -849,20 +876,29 @@ document.addEventListener('DOMContentLoaded', () => {
     <form method="get" action="{{ url_for('web.superadmin_export_range') }}" class="grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
       <div>
         <label>Dari Tanggal</label>
-        <input type="date" name="start" required>
+        <input type="date" name="start" placeholder="DD/MM/YYYY" autocomplete="off" inputmode="numeric" required>
       </div>
       <div>
         <label>Sampai Tanggal</label>
-        <input type="date" name="end" required>
+        <input type="date" name="end" placeholder="DD/MM/YYYY" autocomplete="off" inputmode="numeric" required>
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Perusahaan</label>
+        <select name="company">
+          <option value="">Semua Perusahaan</option>
+          {% for comp in companies %}
+            <option value="{{ comp }}" {% if comp == company_selected %}selected{% endif %}>{{ comp }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div style="grid-column:1/-1">
         <label>Siklus Pegawai</label>
         <select name="siklus">
           <option value="all">Semua</option>
-          <option value="A">Siklus A</option>
-          <option value="B">Siklus B</option>
-          <option value="C">Siklus C</option>
-          <option value="D">Siklus D</option>
+          <option value="A" {% if request.args.get('siklus') == 'A' %}selected{% endif %}>Siklus A</option>
+          <option value="B" {% if request.args.get('siklus') == 'B' %}selected{% endif %}>Siklus B</option>
+          <option value="C" {% if request.args.get('siklus') == 'C' %}selected{% endif %}>Siklus C</option>
+          <option value="D" {% if request.args.get('siklus') == 'D' %}selected{% endif %}>Siklus D</option>
         </select>
       </div>
       <div style="grid-column:1/-1;margin-top:14px;">

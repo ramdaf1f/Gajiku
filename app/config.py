@@ -6,7 +6,16 @@ class Config:
     TEMPLATES_AUTO_RELOAD = True
 
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    
+    # Database config (MySQL)
+    DB_TYPE = os.environ.get("DB_TYPE", "mysql")  # 'sqlite' atau 'mysql'
     DB_PATH = os.environ.get("DB_PATH", os.path.join(PROJECT_ROOT, "data", "tarikgaji-live.db"))
+    
+    MYSQL_HOST = os.environ.get("MYSQL_HOST", "localhost")
+    MYSQL_PORT = int(os.environ.get("MYSQL_PORT", "3306"))
+    MYSQL_USER = os.environ.get("MYSQL_USER", "root")
+    MYSQL_PASS = os.environ.get("MYSQL_PASS", "")
+    MYSQL_DB = os.environ.get("MYSQL_DB", "gajiku_db")
 
     # biaya REG flat per transaksi
     ADMIN_FEE = 15000
