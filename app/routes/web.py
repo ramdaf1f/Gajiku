@@ -2271,18 +2271,24 @@ def admin_pegawai_update(pid):
     
     row = db.execute("SELECT email FROM pegawai WHERE id=?", (pid,)).fetchone()
     old_email = (row["email"] or "").strip().lower() if row else ""
-    
-    exists_sql = "SELECT id FROM pegawai WHERE (LOWER(email)=? OR LOWER(nama)=?"
-    exists_params = [email, nama.lower()]
+
+# 1. Kita hapus LOWER(nama) dari query, jadi cuma ngecek EMAIL aja di awal
+    exists_sql = "SELECT id FROM pegawai WHERE (LOWER(email)=?"
+    exists_params = [email.lower()]  # Pastikan email juga di-lower biar adil
+
+    # 2. Pengecekan ID Pegawai tetep jalan kalau di-input
     if id_pegawai:
         exists_sql += " OR COALESCE(id_pegawai,'')=?"
         exists_params.append(id_pegawai)
+
+    # 3. Tutup kurung query-nya dan pastikan TIDAK mengecek ID diri sendiri (saat edit)
     exists_sql += ") AND id<>?"
     exists_params.append(pid)
-    
+
     exists = db.execute(exists_sql, exists_params).fetchone()
     if exists:
-        flash("ID pegawai/nama/email bentrok dengan data lain.", "error")
+        # 4. Pesan flash-nya disesuaikan (kata 'nama' dibuang biar ga bingung)
+        flash("ID pegawai atau email sudah terdaftar pada data lain.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
     # 🚀 JALANKAN UPDATE MASTER PEGAWAI BESERTA KOLOM perusahaan_induk
