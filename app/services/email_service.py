@@ -28,9 +28,14 @@ def send_email(subject: str, body: str, to_list=None, attachments=None):
             msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
 
         context = ssl.create_default_context()
+        
+        # 🔄 Ambil port dan paksa konversi ke bentuk Integer (Angka)
+        smtp_port = int(current_app.config.get("SMTP_PORT") or 465)
+        smtp_host = current_app.config.get("SMTP_HOST")
+
         with smtplib.SMTP_SSL(
-            current_app.config.get("SMTP_HOST"),
-            current_app.config.get("SMTP_PORT"),
+            smtp_host,
+            smtp_port,  # <--- Di sini diganti pakai variabel smtp_port yang udah jadi int
             context=context,
             timeout=20,
         ) as s:

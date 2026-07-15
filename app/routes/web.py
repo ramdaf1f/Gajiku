@@ -550,7 +550,9 @@ def forgot_password():
             return redirect(url_for("web.forgot_password"))
 
         db = get_db()
-        acc = db.execute("SELECT * FROM user_accounts WHERE email=?", (email,)).fetchone()
+        
+        # 🔄 FIX 1: Ubah ? menjadi %s untuk MySQL
+        acc = db.execute("SELECT * FROM user_accounts WHERE email=%s", (email,)).fetchone()
         if not acc:
             flash("Email tidak terdaftar.", "danger")
             return redirect(url_for("web.forgot_password"))
@@ -560,12 +562,19 @@ def forgot_password():
         new_pass = secrets.token_hex(4)  # 8 karakter
         hash_new = generate_password_hash(new_pass)
 
-        db.execute("UPDATE user_accounts SET password_hash=? WHERE id=?", (hash_new, acc["id"]))
-        db.commit()
+        # 🔄 FIX 2: Ubah ? menjadi %s untuk MySQL
+        db.execute("UPDATE user_accounts SET password_hash=%s WHERE id=%s", (hash_new, acc["id"]))
+        
 
         subj = "[Dana Talangan] Reset Password Akun"
+        
+        # 💡 Catatan: Pastikan kolom di MySQL lu namanya beneran 'name', kalau 'nama' tinggal ganti acc['nama']
         body = f"Halo {acc['name']},\n\nPassword akun Anda telah direset.\nPassword baru: {new_pass}\n\nSegera login dan ubah password melalui menu Pengaturan."
-        enqueue_email(subj, body, to_list=[email])
+        # Panggil langsung tanpa antrean untuk test
+        from app.services.email_service import send_email
+        send_email(subj, body, to_list=[email])
+
+        db.commit()
 
         flash("Password baru telah dikirim ke email Anda.", "info")
         return redirect(url_for("web.login"))
@@ -2312,45 +2321,44 @@ def admin_pegawai_delete(pid: int):
         flash("Pegawai tidak ditemukan.", "error")
         return redirect(url_for("web.admin_pegawai"))
         
+    # Fungsi pembantu untuk membaca data baris, fleksibel Dict atau Tuple
+    def get_val(r, key_str, idx):
+        if isinstance(r, dict):
+            return r.get(key_str) or r.get(key_str.lower()) or r.get(key_str.upper())
+        return r[idx] if len(r) > idx else None
+
+    # Ekstrak data pegawai secara aman
+    pegawai_company = (get_val(row, "perusahaan", 6) or "").strip().lower()
+    pegawai_induk = (get_val(row, "perusahaan_induk", 7) or "").strip().lower()
+    peg_email = (get_val(row, "email", 3) or "").strip().lower()
+
     # =========================================================================
-    # 🛑 PROTEKSI OTOMATIS BERDASARKAN LEVEL INDUK / ANAK PERUSAHAAN
+    # 🛑 PROTECTIONS BERDASARKAN LEVEL INDUK / ANAK PERUSAHAAN
     # =========================================================================
     if not is_super:
         if not admin_company:
             flash("Akses ditolak! Anda tidak memiliki otoritas perusahaan.", "error")
             return redirect(url_for("web.admin_pegawai"))
 
-        # Cek secara live ke database apakah admin yang login bertindak sebagai Perusahaan Induk
         is_parent = db.execute("""
             SELECT 1 FROM pegawai WHERE LOWER(TRIM(perusahaan_induk)) = LOWER(TRIM(?)) LIMIT 1
         """, (admin_company,)).fetchone()
 
-        pegawai_company = (row["perusahaan"] or "").strip().lower()
-        pegawai_induk = (row["perusahaan_induk"] or "").strip().lower()
-
         if is_parent:
-            # 🏢 JIKA ADMIN ADALAH INDUK (Holding/GMI): 
-            # Izinkan hapus hanya jika perusahaan_induk si pegawai klop dengan company milik admin
             if pegawai_induk != admin_company.strip().lower():
                 flash("Akses ditolak! Pegawai ini tidak berada di bawah naungan holding Anda.", "error")
                 return redirect(url_for("web.admin_pegawai"))
         else:
-            # 🏢 JIKA ADMIN PT BIASA / LOKAL:
-            # Tetap dikunci mati hanya boleh menghapus data dari PT-nya sendiri
             if pegawai_company != admin_company.strip().lower():
                 flash("Akses ditolak! Anda tidak berhak menghapus pegawai dari perusahaan lain.", "error")
                 return redirect(url_for("web.admin_pegawai"))
 
     # =========================================================================
-    # ---- Blok Proses Sapu Bersih Data (Tetap Aman Punya Lu) ----
+    # ---- Blok Proses Sapu Bersih Data ----
     # =========================================================================
     try:
-        db.execute("PRAGMA foreign_keys = ON;")
-    except Exception:
-        pass
-
-    try:
         # ---- 1) Arsipkan snapshot pegawai ----
+        # ---- 1) Arsipkan snapshot pegawai (FIXED SNAPSHOT KOSONG) ----
         db.execute("""
             CREATE TABLE IF NOT EXISTS pegawai_archive (
                 pegawai_id INTEGER,
@@ -2358,24 +2366,51 @@ def admin_pegawai_delete(pid: int):
                 deleted_at TEXT
             )
         """)
+        
+        # Bongkar data objek row MySQL menjadi dict murni Python
         try:
-            snap = json.dumps(dict(row))
+            if isinstance(row, dict):
+                # Kalau drivernya udah dict murni
+                snap_dict = dict(row)
+            elif hasattr(row, 'keys'):
+                # Kalau drivernya berupa object mapping (punya .keys())
+                snap_dict = {k: row[k] for k in row.keys()}
+            elif hasattr(db, 'description') and db.description:
+                # Kalau drivernya mengembalikan tuple, kita mapping pake nama kolom dari cursor
+                columns = [col[0] for col in db.description]
+                snap_dict = dict(zip(columns, row))
+            else:
+                # Fallback terakhir kalau bener-bener gak kedetek
+                snap_dict = {"id": pid, "info": "Data terhapus, gagal parse format driver"}
+                
+            snap = json.dumps(snap_dict, default=str) # default=str biar aman dari error datetime
         except Exception:
-            snap = "{}"
+            snap = json.dumps({"id": pid, "error": "Gagal serialize snapshot"})
+        
         db.execute(
-            "INSERT INTO pegawai_archive (pegawai_id, snapshot, deleted_at) VALUES (?,?,datetime('now'))",
+            "INSERT INTO pegawai_archive (pegawai_id, snapshot, deleted_at) VALUES (?,?, NOW())",
             (pid, snap)
         )
 
         # ---- 2) Hapus semua relasi anak ----
-        tables = [r["name"] for r in db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ).fetchall()]
+        raw_tables = db.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+        ).fetchall()
+        
+        # Ambil nama tabel secara aman dari dict atau tuple
+        tables = []
+        for r in raw_tables:
+            val = r.get("table_name") or r.get("TABLE_NAME") if isinstance(r, dict) else r[0]
+            if val: tables.append(val)
 
         def has_column(tname: str, col: str) -> bool:
             try:
-                cols = [c["name"] for c in db.execute(f"PRAGMA table_info({tname})").fetchall()]
-                return col in cols
+                raw_cols = db.execute(f"SHOW COLUMNS FROM {tname}").fetchall()
+                cols = []
+                for c in raw_cols:
+                    val = c.get("Field") or c.get("field") if isinstance(c, dict) else c[0]
+                    if val: cols.append(val.lower())
+                return col.lower() in cols
             except Exception:
                 return False
 
@@ -2386,11 +2421,16 @@ def admin_pegawai_delete(pid: int):
                 db.execute(f"DELETE FROM {t} WHERE pegawai_id=?", (pid,))
 
         # Tangani relasi via akun user berdasarkan email
-        peg_email = (row["email"] or "").strip().lower()
-        user_ids = [r["id"] for r in db.execute(
+        raw_users = db.execute(
             "SELECT id FROM users WHERE LOWER(email)=?",
             (peg_email,)
-        ).fetchall()]
+        ).fetchall()
+        
+        user_ids = []
+        for r in raw_users:
+            val = r.get("id") or r.get("ID") if isinstance(r, dict) else r[0]
+            if val: user_ids.append(val)
+        
         if user_ids:
             ids_sql = ",".join([str(i) for i in user_ids])
             for t in tables:
@@ -2406,12 +2446,11 @@ def admin_pegawai_delete(pid: int):
         db.commit()
         flash("Pegawai dan seluruh data terkait telah DIHAPUS permanen.", "success")
 
-    except sqlite3.IntegrityError as e:
-        db.rollback()
-        flash(f"Gagal hapus permanen karena constraint database: {e}", "error")
     except Exception as e:
         db.rollback()
-        flash(f"Gagal hapus permanen: {e}", "error")
+        import traceback
+        error_msg = traceback.format_exc().strip().split('\n')[-1]
+        flash(f"Gagal hapus permanen: {error_msg} (Detail: {e})", "error")
 
     return redirect(url_for("web.admin_pegawai"))
 
@@ -3052,11 +3091,11 @@ def superadmin_admins_add():
     pw_hash = generate_password_hash(password)
     
     try:
-        # Tambahkan kolom role dan status_aktif ke dalam query INSERT
+        # Tambahkan kolom role dan status_aktif ke dalam query INSERT (Sudah fix untuk MariaDB)
         db.execute(
             """
             INSERT INTO admins (name, email, password_hash, company, no_telp, role, status_aktif, created_at) 
-            VALUES (?, ?, ?, ?, ?, 'admin', 1, DATETIME('now', 'localtime'))
+            VALUES (?, ?, ?, ?, ?, 'admin', 1, NOW())
             """,
             (name, email, pw_hash, company, no_telp)
         )
