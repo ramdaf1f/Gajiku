@@ -1434,9 +1434,30 @@ def admin_dashboard():
 
         # 4) HITUNG ADMIN FEE (PENDAPATAN)
         if is_super:
-            row_fee = db.execute("SELECT COALESCE(SUM(CASE WHEN product='reg' THEN admin_fee END), 0) AS fee_reg, COALESCE(SUM(CASE WHEN product='urg' THEN admin_fee END), 0) AS fee_urg FROM transactions WHERE periode = ? AND status IN ('sukses', 'on-proses')", (periode_key,)).fetchone()
+            row_fee = db.execute("""
+                SELECT
+                  COALESCE(SUM(CASE WHEN product='reg' THEN admin_fee END), 0) AS fee_reg,
+                  COALESCE(SUM(CASE WHEN product='urg' THEN admin_fee END), 0) AS fee_urg
+                FROM transactions
+                WHERE tanggal >= ?
+                  AND tanggal < ?
+                  AND status = 'sukses'
+                  AND product IN ('reg', 'urg')
+            """, (s_first, s_next)).fetchone()
         else:
-            row_fee = db.execute(f"SELECT COALESCE(SUM(CASE WHEN t.product='reg' THEN t.admin_fee END), 0) AS fee_reg, COALESCE(SUM(CASE WHEN t.product='urg' THEN t.admin_fee END), 0) AS fee_urg FROM transactions t JOIN users u ON u.id = t.user_id JOIN pegawai p ON LOWER(p.email) = LOWER(u.email) WHERE t.periode = ? AND t.status IN ('sukses', 'on-proses') AND {where_clause}", [periode_key] + where_params).fetchone()
+            row_fee = db.execute(f"""
+                SELECT
+                  COALESCE(SUM(CASE WHEN t.product='reg' THEN t.admin_fee END), 0) AS fee_reg,
+                  COALESCE(SUM(CASE WHEN t.product='urg' THEN t.admin_fee END), 0) AS fee_urg
+                FROM transactions t
+                JOIN users u ON u.id = t.user_id
+                JOIN pegawai p ON LOWER(p.email) = LOWER(u.email)
+                WHERE t.tanggal >= ?
+                  AND t.tanggal < ?
+                  AND t.status = 'sukses'
+                  AND t.product IN ('reg', 'urg')
+                  AND {where_clause}
+            """, [s_first, s_next] + where_params).fetchone()
 
         admin_fee_reg_total = int(row_fee["fee_reg"] or 0)
         admin_fee_urg_total = int(row_fee["fee_urg"] or 0)
@@ -2162,11 +2183,12 @@ def admin_pegawai_add():
     db = get_db()
     
     exists = db.execute(
-        "SELECT 1 FROM pegawai WHERE id_pegawai=? OR LOWER(email)=? OR LOWER(nama)=?",
-        (id_pegawai, email, nama.lower()),
+        "SELECT 1 FROM pegawai WHERE id_pegawai=? OR LOWER(email)=?",
+        (id_pegawai, email.lower()),
     ).fetchone()
+
     if exists:
-        flash("ID pegawai, nama, atau email sudah terdaftar.", "error")
+        flash("ID pegawai atau email sudah terdaftar.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
     # 🚀 JALANKAN INSERT DATA BESERTA KOLOM perusahaan_induk HASIL OTOMATISASI BACKEND
@@ -2288,7 +2310,7 @@ def admin_pegawai_update(pid):
     exists = db.execute(exists_sql, exists_params).fetchone()
     if exists:
         # 4. Pesan flash-nya disesuaikan (kata 'nama' dibuang biar ga bingung)
-        flash("ID pegawai atau email sudah terdaftar pada data lain.", "error")
+        flash("ID pegawai atau email sudah terdaftar.", "error")
         return redirect(url_for("web.admin_pegawai"))
 
     # 🚀 JALANKAN UPDATE MASTER PEGAWAI BESERTA KOLOM perusahaan_induk
@@ -2625,20 +2647,23 @@ def superadmin_dashboard():
         # Pegawai yg BELUM mencairkan (pakai jumlah akun register aktif sebagai basis)
         not_borrowed = max(total_register - unique_borrowers, 0)
 
-        # --- total admin fee periode ini, dipisah REG & URG lalu dijumlahkan ---
+        # --- total admin fee periode ini, mengikuti riwayat:
+        #     hanya transaksi sukses di rentang tanggal bulan simulasi ---
         row_fee = db.execute("""
             SELECT
               COALESCE(SUM(CASE WHEN product='reg' THEN admin_fee END), 0) AS fee_reg,
               COALESCE(SUM(CASE WHEN product='urg' THEN admin_fee END), 0) AS fee_urg
             FROM transactions
-            WHERE periode = ?
-              AND status IN ('sukses', 'on-proses')
-        """, (periode_key,)).fetchone()
+            WHERE tanggal >= ?
+              AND tanggal < ?
+              AND status = 'sukses'
+              AND product IN ('reg', 'urg')
+        """, (s_first, s_next)).fetchone()
 
         admin_fee_reg_total  = int(row_fee["fee_reg"] or 0)
         admin_fee_urg_total  = int(row_fee["fee_urg"] or 0)
         admin_fee_total      = admin_fee_reg_total + admin_fee_urg_total
-
+    
         # Jumlah on-proses yang sedang menunggu (tampilkan SEMUA yang masih hidup - tak dibatasi periode,
         # supaya admin selalu melihat antrian real-time lintas siklus)
         row = db.execute("""
@@ -2880,7 +2905,7 @@ def superadmin_dashboard():
         recent=recent,
         pending_reg=pending_reg,
         pending_urg=pending_urg,
-        admin_fee_total=admin_fee_total,
+        total_admin=admin_fee_total,
         admin_fee_reg_total=admin_fee_reg_total,
         admin_fee_urg_total=admin_fee_urg_total,
         periode_key=periode_key,
@@ -3200,7 +3225,7 @@ def superadmin_riwayat():
     if product:
         sql += " AND t.product = ?"
         params.append(product)
-
+    
     sql += " ORDER BY t.tanggal DESC, t.id DESC"
 
     # 6. Jalankan Logic List Companies Pilihan Lu

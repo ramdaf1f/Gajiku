@@ -294,11 +294,11 @@
   </div>
   <div class="kpi-card">
     <div class="kpi-label">Admin Fee</div>
-    <div class="kpi-value">{{ ((admin_fee_total or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</div>
+    <div class="kpi-value">{{ ((total_admin or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}</div>
     <div class="kpi-sub">
-      REG: {{ (admin_fee_reg_total or 0) }}
+      REG: {{ ((admin_fee_reg_total or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}
       &nbsp;•&nbsp;
-      URG: {{ (admin_fee_urg_total or 0) }}
+      URG: {{ ((admin_fee_urg_total or 0) | rupiah) | replace('Rp. ', '') | replace('Rp.', '') }}
     </div>    
   </div>
 </div>
